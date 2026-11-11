@@ -1,6 +1,63 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$defs": {
+    "math-grid-state": {
+      "type": "object",
+      "oneOf": [
+        {
+          "properties": {
+            "version": {
+              "const": 1
+            },
+            "cells": {
+              "type": "string"
+            },
+            "borders": {
+              "$ref": "#/$defs/math-grid-borders"
+            }
+          },
+          "required": ["version", "cells", "borders"]
+        },
+        {
+          "properties": {
+            "version": {
+              "const": 2
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "columns": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "cells": {
+              "type": "string"
+            },
+            "borders": {
+              "$ref": "#/$defs/math-grid-borders"
+            }
+          },
+          "required": ["version", "rows", "columns", "cells", "borders"]
+        }
+      ]
+    },
+    "math-grid-borders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cell": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "edge": {
+            "enum": ["bottom", "left"]
+          }
+        },
+        "required": ["cell", "edge"]
+      }
+    },
     "content-block": {
       "type": "object",
       "oneOf": [
@@ -33,13 +90,20 @@
               "const": "squared"
             },
             "content": {
-              "type": "array",
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "string"
+              "oneOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                {
+                  "$ref": "#/$defs/math-grid-state"
                 }
-              }
+              ]
             }
           },
           "required": ["type"]
@@ -55,6 +119,9 @@
   },
   "type": "object",
   "properties": {
+    "solved": {
+      "type": "boolean"
+    },
     "title": {
       "type": "string"
     },

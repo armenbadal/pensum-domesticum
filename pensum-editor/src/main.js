@@ -1,3 +1,5 @@
+import "./components/math-grid/math-grid.js";
+
 const form = document.querySelector("#workbook-form");
 const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
@@ -54,14 +56,16 @@ let userMode = loadUserMode();
 let authorDetails = loadAuthorDetails();
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
+let workbookSolved = false;
 let workbookAuthor = null;
 const assignmentSolutions = new WeakMap();
 
 function applyUserMode(assignments = collectAssignments()) {
   const isTeacher = userMode === USER_MODES.TEACHER;
+  const canEditTeacherContent = isTeacher && !workbookSolved;
   form.hidden = false;
-  form.elements.title.readOnly = !isTeacher;
-  addAssignmentButton.hidden = !isTeacher;
+  form.elements.title.readOnly = !canEditTeacherContent;
+  addAssignmentButton.hidden = !canEditTeacherContent;
   modeSelect.value = userMode;
   assignmentList.replaceChildren();
   assignments.forEach(createAssignment);
@@ -118,7 +122,10 @@ settingsDialog.addEventListener("close", async () => {
     if (selectedMode === USER_MODES.TEACHER) {
       localStorage.setItem(AUTHOR_DETAILS_STORAGE_KEY, JSON.stringify(updatedAuthor));
     }
-    await window.__TAURI__.core.invoke("set_user_mode", { mode: selectedMode });
+    await window.__TAURI__.core.invoke("set_user_mode", {
+      mode: selectedMode,
+      solved: workbookSolved
+    });
     const assignments = collectAssignments();
     userMode = selectedMode;
     authorDetails = updatedAuthor;
@@ -139,7 +146,10 @@ async function listenForSettingsMenu() {
 
 async function syncNativeMenuMode() {
   try {
-    await window.__TAURI__.core.invoke("set_user_mode", { mode: userMode });
+    await window.__TAURI__.core.invoke("set_user_mode", {
+      mode: userMode,
+      solved: workbookSolved
+    });
   } catch (error) {
     showStatus(`Չհաջողվեց կիրառել օգտվողի ռեժիմի մենյուն։ ${error.message}`, "error");
   }
@@ -162,8 +172,10 @@ async function createWorkbook() {
     form.elements.title.value = "";
     assignmentList.replaceChildren();
     hasLoadedWorkbook = false;
+    workbookSolved = false;
     workbookAuthor = null;
     hasUnsavedChanges = false;
+    await syncNativeMenuMode();
     showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
   } catch (error) {
     showStatus(`Չհաջողվեց ստեղծել նոր տետրը։ ${error.message}`, "error");
@@ -179,6 +191,10 @@ async function listenForCreateMenu() {
 }
 
 async function saveWorkbook() {
+  if (userMode === USER_MODES.TEACHER && workbookSolved) {
+    showStatus("Աշակերտի լուծած տետրը միայն դիտման համար է։", "error");
+    return;
+  }
   if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
     showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
     return;
@@ -213,7 +229,9 @@ async function saveWorkbook() {
       path,
       workbook: documentData
     });
+    workbookSolved = documentData.solved;
     hasUnsavedChanges = false;
+    await syncNativeMenuMode();
     showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել տետրը։ ${error.message}`, "error");
@@ -242,6 +260,7 @@ async function openWorkbook() {
 
     const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
     loadWorkbookDocument(documentData);
+    await syncNativeMenuMode();
   } catch (error) {
     showStatus(`Չհաջողվեց բացել տետրը։ ${error.message}`, "error");
   }
@@ -281,118 +300,76 @@ function makeButton(text, className, onClick, type = "button") {
   return button;
 }
 
-function makeIconButton(iconName, className, onClick) {
-  const button = makeButton("", className, onClick);
-  const icon = document.createElement("img");
-  icon.className = "grid-tool-icon";
-  icon.src = `./assets/icons/${iconName}.svg`;
-  icon.alt = "";
-  icon.draggable = false;
-  button.append(icon);
-  return button;
-}
-
 function updateAssignmentNumbers() {
   assignmentList.querySelectorAll(".assignment-card").forEach((card, index) => {
     card.querySelector(".assignment-number").textContent = `Առաջադրանք ${index + 1}`;
   });
 }
 
-function createGridCell(rowIndex, columnIndex, editable) {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.maxLength = 1;
-  input.autocomplete = "off";
-  input.readOnly = !editable;
-  input.setAttribute("aria-label", `Տող ${rowIndex + 1}, վանդակ ${columnIndex + 1}`);
-  input.addEventListener("input", () => {
-    if (!input.value) return;
-    const cells = [...input.closest(".grid-editor").querySelectorAll("input")];
-    cells[cells.indexOf(input) + 1]?.focus();
-  });
-  return input;
+function toMathGridState(content) {
+  if (!Array.isArray(content)) return content;
+
+  const rows = content.length || 10;
+  const columns = content.length
+    ? Math.max(...content.map(row => row.length), 1)
+    : 20;
+  return {
+    version: 2,
+    rows,
+    columns,
+    cells: content.length
+      ? content.map(row => Array.from({ length: columns }, (_, index) => row[index] || " ").join("")).join("\n")
+      : Array.from({ length: rows }, () => " ".repeat(columns)).join("\n"),
+    borders: []
+  };
+}
+
+function isValidSquaredContent(content) {
+  if (Array.isArray(content)) {
+    return content.every(row => Array.isArray(row) && row.every(cell => {
+      if (typeof cell !== "string") return false;
+      return cell === "" || ([...cell].length === 1 && /^[0-9+\-−*/×÷=()]$/u.test(cell));
+    }));
+  }
+  if (!content || typeof content !== "object" || Array.isArray(content)) return false;
+
+  const rows = content.version === 1 ? 20 : content.rows;
+  const columns = content.version === 1 ? 20 : content.columns;
+  if (
+    ![1, 2].includes(content.version) ||
+    !Number.isSafeInteger(rows) ||
+    rows < 1 ||
+    !Number.isSafeInteger(columns) ||
+    columns < 1 ||
+    typeof content.cells !== "string" ||
+    !Array.isArray(content.borders)
+  ) {
+    return false;
+  }
+
+  const gridRows = content.cells.split("\n");
+  return gridRows.length === rows &&
+    gridRows.every(row => [...row].length === columns &&
+      [...row].every(character => character === " " || /^[0-9+\-−*/×÷=()]$/u.test(character))) &&
+    content.borders.every(border => border &&
+      Number.isInteger(border.cell) &&
+      border.cell >= 0 &&
+      border.cell < rows * columns &&
+      ["bottom", "left"].includes(border.edge));
 }
 
 function createSquaredEditor(initialContent, editable = true) {
-  const editor = document.createElement("div");
   const scroll = document.createElement("div");
   scroll.className = "grid-scroll";
-  const grid = document.createElement("div");
-  grid.className = "grid-editor";
-  grid.style.display = "grid";
-  grid.style.width = "max-content";
-  grid.style.borderTop = "1px solid #cbd4e2";
-  grid.style.borderLeft = "1px solid #cbd4e2";
-  const savedRows = Array.isArray(initialContent) && initialContent.length > 0
-    ? initialContent
-    : null;
-  let columnCount = savedRows
-    ? savedRows.reduce((count, row) => Math.max(count, row.length), 1)
-    : 20;
-
-  function addRow(values = []) {
-    const row = document.createElement("div");
-    row.className = "grid-row";
-    row.setAttribute("role", "row");
-    for (let column = 0; column < columnCount; column += 1) {
-      const cell = createGridCell(grid.children.length, column, editable);
-      cell.value = values[column] ?? "";
-      cell.setAttribute("role", "gridcell");
-      row.append(cell);
-    }
-    grid.append(row);
+  const grid = document.createElement("math-grid");
+  grid.setAttribute("aria-label", "Վանդակավոր դաշտ");
+  grid.toggleAttribute("disabled", !editable);
+  if (Array.isArray(initialContent) || (initialContent && typeof initialContent === "object")) {
+    grid.value = JSON.stringify(toMathGridState(initialContent));
   }
-
-  grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
-  grid.setAttribute("role", "grid");
-  if (savedRows) {
-    savedRows.forEach(values => addRow(values));
-  } else {
-    for (let row = 0; row < 15; row += 1) addRow();
-  }
+  grid.addEventListener("input", clearOutput);
   scroll.append(grid);
-
-  const tools = document.createElement("div");
-  tools.className = "grid-tools";
-  tools.append(
-    makeIconButton("rows-3-plus", "button button-secondary grid-tool-button", () => {
-      addRow();
-      clearOutput();
-    }),
-    makeIconButton("rows-3-minus", "button button-secondary grid-tool-button", () => {
-      if (grid.children.length > 1) {
-        grid.lastElementChild.remove();
-        clearOutput();
-      }
-    }),
-    makeIconButton("columns-3-plus", "button button-secondary grid-tool-button", () => {
-      columnCount += 1;
-      grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
-      grid.querySelectorAll(".grid-row").forEach((row, rowIndex) => {
-        const cell = createGridCell(rowIndex, row.children.length, editable);
-        cell.setAttribute("role", "gridcell");
-        row.append(cell);
-      });
-      clearOutput();
-    }),
-    makeIconButton("columns-3-minus", "button button-secondary grid-tool-button", () => {
-      const rows = [...grid.querySelectorAll(".grid-row")];
-      if (columnCount > 1) {
-        columnCount -= 1;
-        grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
-        rows.forEach(row => row.lastElementChild.remove());
-        clearOutput();
-      }
-    })
-  );
-  ["Ավելացնել տող", "Հեռացնել վերջին տողը", "Ավելացնել սյուն", "Հեռացնել վերջին սյունը"]
-    .forEach((label, index) => {
-      tools.children[index].setAttribute("aria-label", label);
-      tools.children[index].title = label;
-    });
-  tools.hidden = !editable;
-  editor.append(scroll, tools);
-  return editor;
+  return scroll;
 }
 
 function createContentBlock(type, index, imageUrl, initialContent = "", editable = true) {
@@ -526,10 +503,9 @@ function createAssignment(savedAssignment = { problem: [] }) {
   const card = document.createElement("article");
   card.className = "assignment-card";
   const isTeacher = userMode === USER_MODES.TEACHER;
-  assignmentSolutions.set(
-    card,
-    Array.isArray(savedAssignment.solution) ? savedAssignment.solution : []
-  );
+  const canEditTeacherContent = isTeacher && !workbookSolved;
+  const savedSolution = Array.isArray(savedAssignment.solution) ? savedAssignment.solution : [];
+  assignmentSolutions.set(card, savedSolution);
 
   const heading = document.createElement("div");
   heading.className = "assignment-heading";
@@ -539,7 +515,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
     card.remove();
     updateAssignmentNumbers();
   });
-  removeButton.hidden = !isTeacher;
+  removeButton.hidden = !canEditTeacherContent;
   removeButton.setAttribute("aria-label", "Հեռացնել առաջադրանքը");
   removeButton.title = "Հեռացնել առաջադրանքը";
   heading.append(
@@ -551,11 +527,11 @@ function createAssignment(savedAssignment = { problem: [] }) {
   const sections = document.createElement("div");
   sections.className = "assignment-sections";
   sections.append(
-    createContentSection("problem", "Խնդիր", savedAssignment.problem, isTeacher),
+    createContentSection("problem", "Խնդիր", savedAssignment.problem, canEditTeacherContent),
   );
-  if (!isTeacher) {
+  if (!isTeacher || savedSolution.length > 0) {
     sections.append(
-      createContentSection("solution", "Լուծում", assignmentSolutions.get(card), true)
+      createContentSection("solution", "Լուծում", savedSolution, !isTeacher)
     );
   }
   card.append(heading, sections);
@@ -577,9 +553,7 @@ function collectBlocks(section) {
     if (type === "image") {
       return { type, url: block.dataset.url };
     }
-    const content = [...block.querySelectorAll(".grid-row")].map(row =>
-      [...row.querySelectorAll("input")].map(cell => cell.value)
-    );
+    const content = JSON.parse(block.querySelector("math-grid").value);
     return { type, content };
   });
 }
@@ -602,6 +576,7 @@ function createDocument() {
     title: form.elements.title.value,
     author: userMode === USER_MODES.STUDENT ? workbookAuthor : { ...authorDetails },
     "created-at": getLocalDateString(),
+    solved: userMode === USER_MODES.STUDENT || workbookSolved,
     assignments: collectAssignments()
   };
 }
@@ -624,6 +599,7 @@ function validateWorkbookDocument(documentData) {
         typeof documentData.author.email === "string"
       )
     ) ||
+    (documentData.solved !== undefined && typeof documentData.solved !== "boolean") ||
     typeof documentData["created-at"] !== "string"
   ) {
     throw new Error("Տետրի հիմնական տվյալները սխալ ձևաչափ ունեն։");
@@ -647,11 +623,7 @@ function validateWorkbookDocument(documentData) {
         }
         if (block.type === "text" && typeof block.content === "string") continue;
         if (block.type === "image" && typeof block.url === "string" && block.url.startsWith("data:image/")) continue;
-        if (
-          block.type === "squared" &&
-          Array.isArray(block.content) &&
-          block.content.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"))
-        ) continue;
+        if (block.type === "squared" && isValidSquaredContent(block.content)) continue;
         throw new Error("Բովանդակության բլոկի տեսակը կամ տվյալները չեն աջակցվում։");
       }
     }
@@ -663,17 +635,23 @@ function loadWorkbookDocument(documentData) {
   form.elements.title.value = documentData.title;
   workbookAuthor = documentData.author;
   hasLoadedWorkbook = true;
+  workbookSolved = documentData.solved === true;
   assignmentList.replaceChildren();
   documentData.assignments.forEach(createAssignment);
   hasUnsavedChanges = false;
-  showStatus("Կիսատ տետրը բացվեց։ Կարող ես շարունակել խմբագրումը։", "success");
+  showStatus(
+    workbookSolved && userMode === USER_MODES.TEACHER
+      ? "Աշակերտի լուծած տետրը բացվեց միայն դիտման համար։"
+      : "Կիսատ տետրը բացվեց։ Կարող ես շարունակել խմբագրումը։",
+    "success"
+  );
 }
 
 form.addEventListener("input", () => clearOutput());
 form.addEventListener("change", () => clearOutput());
 
 document.querySelector("#add-assignment").addEventListener("click", () => {
-  if (userMode !== USER_MODES.TEACHER) return;
+  if (userMode !== USER_MODES.TEACHER || workbookSolved) return;
   createAssignment();
   clearOutput();
 });

@@ -22,20 +22,24 @@ fn exit_app(app: AppHandle) {
 }
 
 #[tauri::command]
-fn set_user_mode(app: AppHandle, mode: String) -> Result<(), String> {
+fn set_user_mode(app: AppHandle, mode: String, solved: bool) -> Result<(), String> {
     let is_teacher = match mode.as_str() {
         "teacher" => true,
         "student" => false,
         _ => return Err("Օգտվողի ռեժիմը սխալ է։".to_string()),
     };
-    let menu = build_app_menu(&app, is_teacher)
+    let menu = build_app_menu(&app, is_teacher, solved)
         .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
     app.set_menu(menu)
         .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
     Ok(())
 }
 
-fn build_app_menu<M: Manager<Wry>>(manager: &M, is_teacher: bool) -> tauri::Result<Menu<Wry>> {
+fn build_app_menu<M: Manager<Wry>>(
+    manager: &M,
+    is_teacher: bool,
+    workbook_solved: bool,
+) -> tauri::Result<Menu<Wry>> {
     let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
     let open_item = MenuItem::with_id(manager, "open", "Բացել", true, None::<&str>)?;
     let save_item = MenuItem::with_id(manager, "save", "Պահպանել", true, None::<&str>)?;
@@ -44,7 +48,16 @@ fn build_app_menu<M: Manager<Wry>>(manager: &M, is_teacher: bool) -> tauri::Resu
         MenuItem::with_id(manager, "settings", "Կարգավորումներ", true, None::<&str>)?;
     let exit_item = MenuItem::with_id(manager, "exit", "Ելք", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(manager)?;
-    let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher {
+    let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher && workbook_solved {
+        vec![
+            &create_item,
+            &open_item,
+            &send_item,
+            &separator,
+            &settings_item,
+            &exit_item,
+        ]
+    } else if is_teacher {
         vec![
             &create_item,
             &open_item,
@@ -99,6 +112,12 @@ fn read_workbook_archive(path: String) -> Result<Value, String> {
         .map_err(|error| format!("workbook.json-ը վավեր JSON չէ։ {error}"))?;
     if workbook.get("formatVersion").and_then(Value::as_u64) != Some(1) {
         return Err("Տետրի ZIP ձևաչափի տարբերակը չի աջակցվում։".to_string());
+    }
+    if workbook
+        .get("solved")
+        .is_some_and(|solved| !solved.is_boolean())
+    {
+        return Err("Տետրի solved դրոշը պետք է լինի boolean։".to_string());
     }
 
     restore_images(&mut workbook, &mut archive)?;
@@ -180,6 +199,7 @@ fn validate_image_entry_path(path: &str) -> Result<(), String> {
 fn write_workbook_archive(path: String, mut workbook: Value) -> Result<(), String> {
     let target_path = zip_path(PathBuf::from(path))?;
     ensure_solution_sections(&mut workbook)?;
+    ensure_solved_flag(&mut workbook)?;
     let parent = target_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -234,6 +254,20 @@ fn ensure_solution_sections(workbook: &mut Value) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn ensure_solved_flag(workbook: &mut Value) -> Result<(), String> {
+    let document = workbook
+        .as_object_mut()
+        .ok_or_else(|| "Տետրի տվյալները պետք է լինեն JSON օբյեկտ։".to_string())?;
+    match document.get("solved") {
+        Some(Value::Bool(_)) => Ok(()),
+        Some(_) => Err("Տետրի solved դրոշը պետք է լինի boolean։".to_string()),
+        None => {
+            document.insert("solved".to_string(), Value::Bool(false));
+            Ok(())
+        }
+    }
 }
 
 fn zip_path(mut path: PathBuf) -> Result<PathBuf, String> {
@@ -358,7 +392,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = build_app_menu(app, true)?;
+            let menu = build_app_menu(app, true, false)?;
             app.set_menu(menu)?;
             Ok(())
         })
@@ -408,6 +442,7 @@ mod tests {
             serde_json::from_reader(&mut entry).unwrap()
         };
         assert_eq!(document["formatVersion"], 1);
+        assert_eq!(document["solved"], false);
         assert_eq!(document["assignments"][0]["solution"], json!([]));
         assert_eq!(
             document["assignments"][0]["problem"][0]["url"],
@@ -432,6 +467,7 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
+            "solved": true,
             "author": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
@@ -452,6 +488,7 @@ mod tests {
             opened["assignments"][0]["problem"][0]["url"],
             "data:image/png;base64,SGVsbG8="
         );
+        assert_eq!(opened["solved"], true);
     }
 
     #[test]
@@ -460,6 +497,7 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
+            "solved": true,
             "author": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
@@ -481,6 +519,13 @@ mod tests {
             opened["assignments"][0]["solution"][0]["url"],
             "data:image/png;base64,SGVsbG8="
         );
+        assert_eq!(opened["solved"], true);
+    }
+
+    #[test]
+    fn rejects_non_boolean_solved_flags() {
+        let mut workbook = json!({ "solved": "true", "assignments": [] });
+        assert!(ensure_solved_flag(&mut workbook).is_err());
     }
 
     #[test]
