@@ -5,8 +5,8 @@ use std::{
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
 };
-use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter};
 use tempfile::NamedTempFile;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -14,6 +14,11 @@ use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
+}
+
+#[tauri::command]
+fn exit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]
@@ -267,6 +272,10 @@ pub fn run() {
                 if let Err(error) = app.emit("open-settings", ()) {
                     eprintln!("Failed to open settings: {error}");
                 }
+            } else if event.id() == "create" {
+                if let Err(error) = app.emit("create-workbook", ()) {
+                    eprintln!("Failed to start new workbook: {error}");
+                }
             } else if event.id() == "save" {
                 if let Err(error) = app.emit("save-workbook", ()) {
                     eprintln!("Failed to start workbook save: {error}");
@@ -274,6 +283,10 @@ pub fn run() {
             } else if event.id() == "open" {
                 if let Err(error) = app.emit("open-workbook", ()) {
                     eprintln!("Failed to start workbook open: {error}");
+                }
+            } else if event.id() == "exit" {
+                if let Err(error) = app.emit("exit-workbook", ()) {
+                    eprintln!("Failed to request application exit: {error}");
                 }
             }
         })
@@ -307,6 +320,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
+            exit_app,
             open_workbook,
             save_workbook
         ])

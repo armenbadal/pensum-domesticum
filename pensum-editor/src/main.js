@@ -56,10 +56,6 @@ function applyUserMode() {
   const isTeacher = userMode === USER_MODES.TEACHER;
   form.hidden = !isTeacher;
   modeSelect.value = userMode;
-
-  if (isTeacher && assignmentList.children.length === 0) {
-    createAssignment();
-  }
 }
 
 function openSettings() {
@@ -111,6 +107,37 @@ async function listenForSettingsMenu() {
     await window.__TAURI__.event.listen("open-settings", openSettings);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել կարգավորումների մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function confirmDiscardChanges(message) {
+  if (!hasUnsavedChanges) return true;
+  return window.__TAURI__.dialog.confirm(
+    `Չպահպանված փոփոխությունները կկորչեն։ ${message}`,
+    { title: "Չպահպանված փոփոխություններ", kind: "warning" }
+  );
+}
+
+async function createWorkbook() {
+  if (userMode !== USER_MODES.TEACHER) return;
+
+  try {
+    if (!(await confirmDiscardChanges("Ստեղծե՞լ նոր դատարկ տետր։"))) return;
+
+    form.elements.title.value = "";
+    assignmentList.replaceChildren();
+    hasUnsavedChanges = false;
+    showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
+  } catch (error) {
+    showStatus(`Չհաջողվեց ստեղծել նոր տետրը։ ${error.message}`, "error");
+  }
+}
+
+async function listenForCreateMenu() {
+  try {
+    await window.__TAURI__.event.listen("create-workbook", createWorkbook);
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել ստեղծման մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -170,13 +197,7 @@ async function openWorkbook() {
     });
     if (!path) return;
 
-    if (hasUnsavedChanges) {
-      const discardChanges = await window.__TAURI__.dialog.confirm(
-        "Չպահպանված փոփոխությունները կկորչեն։ Շարունակե՞լ։",
-        { title: "Բացել տետրը", kind: "warning" }
-      );
-      if (!discardChanges) return;
-    }
+    if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
 
     const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
     loadWorkbookDocument(documentData);
@@ -190,6 +211,23 @@ async function listenForOpenMenu() {
     await window.__TAURI__.event.listen("open-workbook", openWorkbook);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել բացման մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function exitWorkbook() {
+  try {
+    if (!(await confirmDiscardChanges("Դո՞ւրս գալ ծրագրից։"))) return;
+    await window.__TAURI__.core.invoke("exit_app");
+  } catch (error) {
+    showStatus(`Չհաջողվեց փակել ծրագիրը։ ${error.message}`, "error");
+  }
+}
+
+async function listenForExitMenu() {
+  try {
+    await window.__TAURI__.event.listen("exit-workbook", exitWorkbook);
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել ելքի մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -573,8 +611,9 @@ form.addEventListener("submit", event => {
   saveWorkbook();
 });
 
-createAssignment();
 applyUserMode();
+listenForCreateMenu();
 listenForSettingsMenu();
 listenForSaveMenu();
 listenForOpenMenu();
+listenForExitMenu();
