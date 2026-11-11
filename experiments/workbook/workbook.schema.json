@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "content-block": {
+      "type": "object",
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "content": {
+              "type": "string"
+            }
+          },
+          "required": ["type"]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "image"
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            }
+          },
+          "required": ["type"]
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "squared"
+            },
+            "content": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": ["type"]
+        }
+      ]
+    },
+    "content-blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/content-block"
+      }
+    }
+  },
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "author": {
+      "type": "string"
+    },
+    "created-at": {
+      "type": "string",
+      "format": "date"
+    },
+    "assignments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "problem": {
+            "$ref": "#/$defs/content-blocks"
+          },
+          "solution": {
+            "$ref": "#/$defs/content-blocks"
+          }
+        },
+        "required": ["problem", "solution"]
+      }
+    }
+  },
+  "required": ["title", "author", "created-at"]
+}

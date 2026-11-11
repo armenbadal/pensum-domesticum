@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="hy">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Մաթեմատիկական վանդակավոր մուտք</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: system-ui, sans-serif;
+        color: #202124;
+        background: #f5f6f8;
+      }
+
+      body {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+
+      p {
+        line-height: 1.5;
+      }
+
+      .grid-scroll {
+        overflow: auto;
+        padding: 4px;
+        background: white;
+        border: 1px solid #d5d9df;
+        border-radius: 8px;
+      }
+
+      math-grid {
+        display: block;
+        width: max-content;
+      }
+
+      button {
+        margin-top: 16px;
+        padding: 8px 16px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      #result {
+        max-height: 18rem;
+        overflow: auto;
+        padding: 12px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: white;
+        border: 1px solid #d5d9df;
+        border-radius: 8px;
+      }
+
+      #result:empty {
+        display: none;
+      }
+    </style>
+    <script type="module" src="./math-grid.js"></script>
+  </head>
+  <body>
+    <main>
+      <h1>Մաթեմատիկական վանդակավոր մուտք</h1>
+      <p>
+        Յուրաքանչյուր վանդակում մուտքագրեք մեկ թվանշան կամ գործողության նշան։
+        Թույլատրելի նշաններն են՝ <code>+ − - * / × ÷ = ( )</code>։
+        Սլաքներով շարժվեք վանդակների միջև, իսկ արտահայտությունը կարող եք նաև
+        տեղադրել clipboard-ից։
+      </p>
+
+      <form id="math-form">
+        <div class="grid-scroll">
+          <math-grid name="expression" aria-label="Մաթեմատիկական արտահայտություն"></math-grid>
+        </div>
+        <button type="submit">Ուղարկել</button>
+        <button type="reset">Մաքրել</button>
+      </form>
+
+      <h2>Ուղարկված տվյալներ</h2>
+      <pre id="result" aria-live="polite"></pre>
+    </main>
+
+    <script type="module">
+      const form = document.querySelector("#math-form");
+      const result = document.querySelector("#result");
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const submitted = Object.fromEntries(new FormData(form));
+        submitted.expression = JSON.parse(submitted.expression);
+        result.textContent = JSON.stringify(submitted, null, 2);
+      });
+
+      form.addEventListener("reset", () => {
+        result.textContent = "";
+      });
+    </script>
+  </body>
+</html>
