@@ -14,14 +14,6 @@
           <label for="workbook-title">Վերնագիր</label>
           <input id="workbook-title" name="title" type="text" required>
         </div>
-        <div class="field">
-          <label for="workbook-author">Հեղինակ</label>
-          <input id="workbook-author" name="author" type="text" required>
-        </div>
-        <div class="field">
-          <label for="workbook-date">Ստեղծման ամսաթիվ</label>
-          <input id="workbook-date" name="created-at" type="date" required>
-        </div>
       </div>
 
       <div class="assignments-heading">
@@ -43,8 +35,16 @@
           <option value="student">Աշակերտ (student)</option>
         </select>
       </div>
+      <div class="field">
+        <label for="author-name">Հեղինակի անուն</label>
+        <input id="author-name" name="author-name" type="text" autocomplete="name" required>
+      </div>
+      <div class="field">
+        <label for="author-email">Հեղինակի էլ․ փոստ</label>
+        <input id="author-email" name="author-email" type="email" autocomplete="email" required>
+      </div>
       <div class="settings-actions">
-        <button class="button button-secondary" value="cancel">Չեղարկել</button>
+        <button class="button button-secondary" value="cancel" formnovalidate>Չեղարկել</button>
         <button class="button button-primary" value="save">Պահպանել</button>
       </div>
     </form>

@@ -3,12 +3,15 @@ const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
 const settingsDialog = document.querySelector("#settings-dialog");
 const modeSelect = document.querySelector("#user-mode");
+const authorNameInput = document.querySelector("#author-name");
+const authorEmailInput = document.querySelector("#author-email");
 
 const USER_MODES = Object.freeze({
   TEACHER: "teacher",
   STUDENT: "student"
 });
 const USER_MODE_STORAGE_KEY = "pensum-user-mode";
+const AUTHOR_DETAILS_STORAGE_KEY = "pensum-author-details";
 
 function showStatus(message, type = "") {
   status.textContent = message;
@@ -25,7 +28,29 @@ function loadUserMode() {
   }
 }
 
+function loadAuthorDetails() {
+  try {
+    const savedDetails = localStorage.getItem(AUTHOR_DETAILS_STORAGE_KEY);
+    if (!savedDetails) return { name: "", email: "" };
+
+    const details = JSON.parse(savedDetails);
+    if (
+      !details ||
+      typeof details.name !== "string" ||
+      typeof details.email !== "string"
+    ) {
+      throw new Error("Պահպանված հեղինակի տվյալները սխալ ձևաչափ ունեն։");
+    }
+    return { name: details.name, email: details.email };
+  } catch (error) {
+    showStatus(`Չհաջողվեց կարդալ հեղինակի կարգավորումները։ ${error.message}`, "error");
+    return { name: "", email: "" };
+  }
+}
+
 let userMode = loadUserMode();
+let authorDetails = loadAuthorDetails();
+let hasUnsavedChanges = false;
 
 function applyUserMode() {
   const isTeacher = userMode === USER_MODES.TEACHER;
@@ -39,7 +64,16 @@ function applyUserMode() {
 
 function openSettings() {
   modeSelect.value = userMode;
+  authorNameInput.value = authorDetails.name;
+  authorEmailInput.value = authorDetails.email;
   if (!settingsDialog.open) settingsDialog.showModal();
+}
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 settingsDialog.addEventListener("close", () => {
@@ -51,11 +85,22 @@ settingsDialog.addEventListener("close", () => {
     return;
   }
 
+  const updatedAuthor = {
+    name: authorNameInput.value.trim(),
+    email: authorEmailInput.value.trim()
+  };
+  if (!updatedAuthor.name || !updatedAuthor.email || !authorEmailInput.checkValidity()) {
+    showStatus("Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։", "error");
+    return;
+  }
+
   try {
     localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
+    localStorage.setItem(AUTHOR_DETAILS_STORAGE_KEY, JSON.stringify(updatedAuthor));
     userMode = selectedMode;
+    authorDetails = updatedAuthor;
     applyUserMode();
-    clearOutput(`Պահպանվեց ${userMode === USER_MODES.TEACHER ? "դասատուի" : "աշակերտի"} ռեժիմը։`);
+    showStatus("Կարգավորումները պահպանվեցին։");
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել ռեժիմը։ ${error.message}`, "error");
   }
@@ -66,6 +111,85 @@ async function listenForSettingsMenu() {
     await window.__TAURI__.event.listen("open-settings", openSettings);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել կարգավորումների մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function saveWorkbook() {
+  if (userMode !== USER_MODES.TEACHER || !form.reportValidity()) return;
+  if (!authorDetails.name.trim() || !authorDetails.email.trim()) {
+    showStatus("Կարգավորումներում լրացրու հեղինակի անունն ու էլ․ փոստը։", "error");
+    return;
+  }
+  const emailValidator = document.createElement("input");
+  emailValidator.type = "email";
+  emailValidator.value = authorDetails.email;
+  if (!emailValidator.checkValidity()) {
+    showStatus("Կարգավորումներում լրացրու վավեր էլ․ փոստ։", "error");
+    return;
+  }
+
+  try {
+    const documentData = createDocument();
+    const safeName = documentData.title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-") || "workbook";
+    const path = await window.__TAURI__.dialog.save({
+      title: "Պահպանել տետրը",
+      defaultPath: `${safeName}.pdw`,
+      filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
+    });
+    if (!path) return;
+
+    documentData["created-at"] = getLocalDateString();
+    await window.__TAURI__.core.invoke("save_workbook", {
+      path,
+      workbook: documentData
+    });
+    hasUnsavedChanges = false;
+    showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
+  } catch (error) {
+    showStatus(`Չհաջողվեց պահպանել տետրը։ ${error.message}`, "error");
+  }
+}
+
+async function listenForSaveMenu() {
+  try {
+    await window.__TAURI__.event.listen("save-workbook", saveWorkbook);
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել պահպանման մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function openWorkbook() {
+  if (userMode !== USER_MODES.TEACHER) return;
+
+  try {
+    const path = await window.__TAURI__.dialog.open({
+      title: "Բացել տետրը",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
+    });
+    if (!path) return;
+
+    if (hasUnsavedChanges) {
+      const discardChanges = await window.__TAURI__.dialog.confirm(
+        "Չպահպանված փոփոխությունները կկորչեն։ Շարունակե՞լ։",
+        { title: "Բացել տետրը", kind: "warning" }
+      );
+      if (!discardChanges) return;
+    }
+
+    const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
+    loadWorkbookDocument(documentData);
+  } catch (error) {
+    showStatus(`Չհաջողվեց բացել տետրը։ ${error.message}`, "error");
+  }
+}
+
+async function listenForOpenMenu() {
+  try {
+    await window.__TAURI__.event.listen("open-workbook", openWorkbook);
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել բացման մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -109,7 +233,7 @@ function createGridCell(rowIndex, columnIndex) {
   return input;
 }
 
-function createSquaredEditor() {
+function createSquaredEditor(initialContent) {
   const editor = document.createElement("div");
   const scroll = document.createElement("div");
   scroll.className = "grid-scroll";
@@ -119,7 +243,12 @@ function createSquaredEditor() {
   grid.style.width = "max-content";
   grid.style.borderTop = "1px solid #cbd4e2";
   grid.style.borderLeft = "1px solid #cbd4e2";
-  let columnCount = 20;
+  const savedRows = Array.isArray(initialContent) && initialContent.length > 0
+    ? initialContent
+    : null;
+  let columnCount = savedRows
+    ? savedRows.reduce((count, row) => Math.max(count, row.length), 1)
+    : 20;
 
   function addRow(values = []) {
     const row = document.createElement("div");
@@ -127,7 +256,7 @@ function createSquaredEditor() {
     row.setAttribute("role", "row");
     for (let column = 0; column < columnCount; column += 1) {
       const cell = createGridCell(grid.children.length, column);
-      cell.value = values[column] || "";
+      cell.value = values[column] ?? "";
       cell.setAttribute("role", "gridcell");
       row.append(cell);
     }
@@ -136,15 +265,25 @@ function createSquaredEditor() {
 
   grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
   grid.setAttribute("role", "grid");
-  for (let row = 0; row < 15; row += 1) addRow();
+  if (savedRows) {
+    savedRows.forEach(values => addRow(values));
+  } else {
+    for (let row = 0; row < 15; row += 1) addRow();
+  }
   scroll.append(grid);
 
   const tools = document.createElement("div");
   tools.className = "grid-tools";
   tools.append(
-    makeIconButton("rows-3-plus", "button button-secondary grid-tool-button", () => addRow()),
+    makeIconButton("rows-3-plus", "button button-secondary grid-tool-button", () => {
+      addRow();
+      clearOutput();
+    }),
     makeIconButton("rows-3-minus", "button button-secondary grid-tool-button", () => {
-      if (grid.children.length > 1) grid.lastElementChild.remove();
+      if (grid.children.length > 1) {
+        grid.lastElementChild.remove();
+        clearOutput();
+      }
     }),
     makeIconButton("columns-3-plus", "button button-secondary grid-tool-button", () => {
       columnCount += 1;
@@ -154,6 +293,7 @@ function createSquaredEditor() {
         cell.setAttribute("role", "gridcell");
         row.append(cell);
       });
+      clearOutput();
     }),
     makeIconButton("columns-3-minus", "button button-secondary grid-tool-button", () => {
       const rows = [...grid.querySelectorAll(".grid-row")];
@@ -161,6 +301,7 @@ function createSquaredEditor() {
         columnCount -= 1;
         grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
         rows.forEach(row => row.lastElementChild.remove());
+        clearOutput();
       }
     })
   );
@@ -173,12 +314,15 @@ function createSquaredEditor() {
   return editor;
 }
 
-function createContentBlock(type, index, imageUrl) {
+function createContentBlock(type, index, imageUrl, initialContent = "") {
   const block = document.createElement("div");
   block.className = "content-block";
   block.dataset.type = type;
 
-  const removeButton = makeButton("×", "button button-danger remove-block-button", () => block.remove());
+  const removeButton = makeButton("×", "button button-danger remove-block-button", () => {
+    block.remove();
+    clearOutput();
+  });
   removeButton.setAttribute("aria-label", "Հեռացնել բլոկը");
   removeButton.title = "Հեռացնել";
 
@@ -187,6 +331,7 @@ function createContentBlock(type, index, imageUrl) {
     const textarea = document.createElement("textarea");
     textarea.setAttribute("aria-label", "Տեքստի բովանդակություն");
     textarea.placeholder = "Տեքստ";
+    textarea.value = initialContent;
     block.append(textarea, removeButton);
     return block;
   }
@@ -204,7 +349,7 @@ function createContentBlock(type, index, imageUrl) {
 
   block.classList.add("content-block-squared");
   removeButton.classList.add("content-block-squared-remove");
-  block.append(createSquaredEditor(), removeButton);
+  block.append(createSquaredEditor(initialContent), removeButton);
   return block;
 }
 
@@ -246,7 +391,7 @@ function openImagePicker(blocks) {
   input.click();
 }
 
-function createContentSection(name, title) {
+function createContentSection(name, title, initialBlocks = []) {
   const section = document.createElement("section");
   section.className = "content-section";
   section.dataset.section = name;
@@ -259,12 +404,29 @@ function createContentSection(name, title) {
 
   const blocks = document.createElement("div");
   blocks.className = "block-list";
+  initialBlocks.forEach((savedBlock, index) => {
+    let block;
+    if (savedBlock.type === "text") {
+      block = createContentBlock("text", index, undefined, savedBlock.content);
+    } else if (savedBlock.type === "image") {
+      block = createContentBlock("image", index, savedBlock.url);
+    } else {
+      block = createContentBlock("squared", index, undefined, savedBlock.content);
+    }
+    blocks.append(block);
+  });
   const tools = document.createElement("div");
   tools.className = "add-block-tools";
   tools.append(
-    makeButton("", "add-block-button add-block-button-text", () => blocks.append(createContentBlock("text", blocks.children.length))),
+    makeButton("", "add-block-button add-block-button-text", () => {
+      blocks.append(createContentBlock("text", blocks.children.length));
+      clearOutput();
+    }),
     makeButton("", "add-block-button add-block-button-image", () => openImagePicker(blocks)),
-    makeButton("", "add-block-button add-block-button-grid", () => blocks.append(createContentBlock("squared", blocks.children.length)))
+    makeButton("", "add-block-button add-block-button-grid", () => {
+      blocks.append(createContentBlock("squared", blocks.children.length));
+      clearOutput();
+    })
   );
   tools.children[0].setAttribute("aria-label", "Ավելացնել տեքստային բլոկ");
   tools.children[0].title = "Տեքստ";
@@ -276,7 +438,7 @@ function createContentSection(name, title) {
   return section;
 }
 
-function createAssignment() {
+function createAssignment(savedAssignment = { problem: [] }) {
   const card = document.createElement("article");
   card.className = "assignment-card";
 
@@ -294,18 +456,20 @@ function createAssignment() {
     title,
     removeButton
   );
+  removeButton.addEventListener("click", clearOutput);
 
   const sections = document.createElement("div");
   sections.className = "assignment-sections";
   sections.append(
-    createContentSection("problem", "Խնդիր"),
+    createContentSection("problem", "Խնդիր", savedAssignment.problem),
   );
   card.append(heading, sections);
   assignmentList.append(card);
   updateAssignmentNumbers();
 }
 
-function clearOutput(message = "Փոփոխություններ կան․ ստեղծիր և ներբեռնիր JSON-ը։") {
+function clearOutput(message = "Փոփոխություններ կան․ տետրը պահպանելու համար ընտրիր «Պահպանել»։") {
+  hasUnsavedChanges = true;
   showStatus(message);
 }
 
@@ -335,10 +499,64 @@ function createDocument() {
 
   return {
     title: form.elements.title.value,
-    author: form.elements.author.value,
-    "created-at": form.elements["created-at"].value,
+    author: { ...authorDetails },
+    "created-at": getLocalDateString(),
     assignments
   };
+}
+
+function validateWorkbookDocument(documentData) {
+  if (!documentData || typeof documentData !== "object" || Array.isArray(documentData)) {
+    throw new Error("Տետրի տվյալները սխալ ձևաչափ ունեն։");
+  }
+  if (documentData.formatVersion !== 1) {
+    throw new Error("Տետրի ZIP ձևաչափի տարբերակը չի աջակցվում։");
+  }
+  if (
+    typeof documentData.title !== "string" ||
+    !(
+      typeof documentData.author === "string" ||
+      (
+        documentData.author &&
+        typeof documentData.author === "object" &&
+        typeof documentData.author.name === "string" &&
+        typeof documentData.author.email === "string"
+      )
+    ) ||
+    typeof documentData["created-at"] !== "string"
+  ) {
+    throw new Error("Տետրի հիմնական տվյալները սխալ ձևաչափ ունեն։");
+  }
+  if (!Array.isArray(documentData.assignments)) {
+    throw new Error("Տետրում առաջադրանքների ցուցակ չկա։");
+  }
+  for (const assignment of documentData.assignments) {
+    if (!assignment || typeof assignment !== "object" || !Array.isArray(assignment.problem)) {
+      throw new Error("Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։");
+    }
+    for (const block of assignment.problem) {
+      if (!block || typeof block !== "object") {
+        throw new Error("Բովանդակության բլոկի տվյալները սխալ ձևաչափ ունեն։");
+      }
+      if (block.type === "text" && typeof block.content === "string") continue;
+      if (block.type === "image" && typeof block.url === "string" && block.url.startsWith("data:image/")) continue;
+      if (
+        block.type === "squared" &&
+        Array.isArray(block.content) &&
+        block.content.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"))
+      ) continue;
+      throw new Error("Բովանդակության բլոկի տեսակը կամ տվյալները չեն աջակցվում։");
+    }
+  }
+}
+
+function loadWorkbookDocument(documentData) {
+  validateWorkbookDocument(documentData);
+  form.elements.title.value = documentData.title;
+  assignmentList.replaceChildren();
+  documentData.assignments.forEach(createAssignment);
+  hasUnsavedChanges = false;
+  showStatus("Կիսատ տետրը բացվեց։ Կարող ես շարունակել խմբագրումը։", "success");
 }
 
 form.addEventListener("input", () => clearOutput());
@@ -352,31 +570,11 @@ document.querySelector("#add-assignment").addEventListener("click", () => {
 
 form.addEventListener("submit", event => {
   event.preventDefault();
-  if (userMode !== USER_MODES.TEACHER) return;
-  try {
-    const documentData = createDocument();
-    const file = new Blob([JSON.stringify(documentData, null, 2)], {
-      type: "application/json;charset=utf-8"
-    });
-    const link = document.createElement("a");
-    const safeName = documentData.title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-") || "workbook";
-    link.href = URL.createObjectURL(file);
-    link.download = `${safeName}.json`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-    showStatus("JSON փաստաթուղթը ստեղծվեց և ներբեռնվեց։", "success");
-  } catch (error) {
-    showStatus(error.message, "error");
-  }
+  saveWorkbook();
 });
 
-const localDate = new Date();
-const year = localDate.getFullYear();
-const month = String(localDate.getMonth() + 1).padStart(2, "0");
-const day = String(localDate.getDate()).padStart(2, "0");
-form.elements["created-at"].value = `${year}-${month}-${day}`;
 createAssignment();
 applyUserMode();
 listenForSettingsMenu();
+listenForSaveMenu();
+listenForOpenMenu();
