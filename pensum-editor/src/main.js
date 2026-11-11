@@ -5,9 +5,10 @@ const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
 const settingsDialog = document.querySelector("#settings-dialog");
 const modeSelect = document.querySelector("#user-mode");
-const settingsAuthorFields = document.querySelector("#settings-author-fields");
-const authorNameInput = document.querySelector("#author-name");
-const authorEmailInput = document.querySelector("#author-email");
+const profileNameLabel = document.querySelector("#profile-name-label");
+const profileEmailLabel = document.querySelector("#profile-email-label");
+const profileNameInput = document.querySelector("#profile-name");
+const profileEmailInput = document.querySelector("#profile-email");
 const addAssignmentButton = document.querySelector("#add-assignment");
 
 const USER_MODES = Object.freeze({
@@ -16,6 +17,7 @@ const USER_MODES = Object.freeze({
 });
 const USER_MODE_STORAGE_KEY = "pensum-user-mode";
 const AUTHOR_DETAILS_STORAGE_KEY = "pensum-author-details";
+const STUDENT_DETAILS_STORAGE_KEY = "pensum-student-details";
 
 function showStatus(message, type = "") {
   status.textContent = message;
@@ -32,9 +34,9 @@ function loadUserMode() {
   }
 }
 
-function loadAuthorDetails() {
+function loadProfileDetails(storageKey, profileName) {
   try {
-    const savedDetails = localStorage.getItem(AUTHOR_DETAILS_STORAGE_KEY);
+    const savedDetails = localStorage.getItem(storageKey);
     if (!savedDetails) return { name: "", email: "" };
 
     const details = JSON.parse(savedDetails);
@@ -43,17 +45,18 @@ function loadAuthorDetails() {
       typeof details.name !== "string" ||
       typeof details.email !== "string"
     ) {
-      throw new Error("Պահպանված հեղինակի տվյալները սխալ ձևաչափ ունեն։");
+      throw new Error(`Պահպանված ${profileName} տվյալները սխալ ձևաչափ ունեն։`);
     }
     return { name: details.name, email: details.email };
   } catch (error) {
-    showStatus(`Չհաջողվեց կարդալ հեղինակի կարգավորումները։ ${error.message}`, "error");
+    showStatus(`Չհաջողվեց կարդալ ${profileName} կարգավորումները։ ${error.message}`, "error");
     return { name: "", email: "" };
   }
 }
 
 let userMode = loadUserMode();
-let authorDetails = loadAuthorDetails();
+let authorDetails = loadProfileDetails(AUTHOR_DETAILS_STORAGE_KEY, "հեղինակի");
+let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "աշակերտի");
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
@@ -69,21 +72,21 @@ function applyUserMode(assignments = collectAssignments()) {
   modeSelect.value = userMode;
   assignmentList.replaceChildren();
   assignments.forEach(createAssignment);
-  updateSettingsAuthorFields();
+  updateSettingsProfileFields();
 }
 
-function updateSettingsAuthorFields() {
+function updateSettingsProfileFields() {
   const isTeacher = modeSelect.value === USER_MODES.TEACHER;
-  settingsAuthorFields.hidden = !isTeacher;
-  authorNameInput.disabled = !isTeacher;
-  authorEmailInput.disabled = !isTeacher;
+  const details = isTeacher ? authorDetails : studentDetails;
+  profileNameLabel.textContent = isTeacher ? "Հեղինակի անուն" : "Աշակերտի անուն";
+  profileEmailLabel.textContent = isTeacher ? "Հեղինակի էլ․ փոստ" : "Աշակերտի էլ․ փոստ";
+  profileNameInput.value = details.name;
+  profileEmailInput.value = details.email;
 }
 
 function openSettings() {
   modeSelect.value = userMode;
-  authorNameInput.value = authorDetails.name;
-  authorEmailInput.value = authorDetails.email;
-  updateSettingsAuthorFields();
+  updateSettingsProfileFields();
   if (!settingsDialog.open) settingsDialog.showModal();
 }
 
@@ -94,7 +97,7 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-modeSelect.addEventListener("change", updateSettingsAuthorFields);
+modeSelect.addEventListener("change", updateSettingsProfileFields);
 
 settingsDialog.addEventListener("close", async () => {
   if (settingsDialog.returnValue !== "save") return;
@@ -105,30 +108,36 @@ settingsDialog.addEventListener("close", async () => {
     return;
   }
 
-  let updatedAuthor = authorDetails;
-  if (selectedMode === USER_MODES.TEACHER) {
-    updatedAuthor = {
-      name: authorNameInput.value.trim(),
-      email: authorEmailInput.value.trim()
-    };
-    if (!updatedAuthor.name || !updatedAuthor.email || !authorEmailInput.checkValidity()) {
-      showStatus("Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։", "error");
-      return;
-    }
+  const isTeacher = selectedMode === USER_MODES.TEACHER;
+  const updatedDetails = {
+    name: profileNameInput.value.trim(),
+    email: profileEmailInput.value.trim()
+  };
+  if (!updatedDetails.name || !updatedDetails.email || !profileEmailInput.checkValidity()) {
+    showStatus(
+      isTeacher
+        ? "Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։"
+        : "Լրացրու աշակերտի անունն ու վավեր էլ․ փոստը։",
+      "error"
+    );
+    return;
   }
 
   try {
     localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
-    if (selectedMode === USER_MODES.TEACHER) {
-      localStorage.setItem(AUTHOR_DETAILS_STORAGE_KEY, JSON.stringify(updatedAuthor));
-    }
+    const detailsStorageKey = isTeacher ? AUTHOR_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
+    localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: selectedMode,
       solved: workbookSolved
     });
     const assignments = collectAssignments();
     userMode = selectedMode;
-    authorDetails = updatedAuthor;
+    if (isTeacher) {
+      authorDetails = updatedDetails;
+    } else {
+      studentDetails = updatedDetails;
+    }
     applyUserMode(assignments);
     showStatus("Կարգավորումները պահպանվեցին։");
   } catch (error) {
