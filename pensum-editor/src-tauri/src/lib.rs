@@ -5,8 +5,8 @@ use std::{
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
 };
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 use tempfile::NamedTempFile;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -19,6 +19,52 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+fn set_user_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    let is_teacher = match mode.as_str() {
+        "teacher" => true,
+        "student" => false,
+        _ => return Err("Օգտվողի ռեժիմը սխալ է։".to_string()),
+    };
+    let menu = build_app_menu(&app, is_teacher)
+        .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
+    app.set_menu(menu)
+        .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
+    Ok(())
+}
+
+fn build_app_menu<M: Manager<Wry>>(manager: &M, is_teacher: bool) -> tauri::Result<Menu<Wry>> {
+    let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
+    let open_item = MenuItem::with_id(manager, "open", "Բացել", true, None::<&str>)?;
+    let save_item = MenuItem::with_id(manager, "save", "Պահպանել", true, None::<&str>)?;
+    let send_item = MenuItem::with_id(manager, "send", "Ուղարկել", true, None::<&str>)?;
+    let settings_item =
+        MenuItem::with_id(manager, "settings", "Կարգավորումներ", true, None::<&str>)?;
+    let exit_item = MenuItem::with_id(manager, "exit", "Ելք", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(manager)?;
+    let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher {
+        vec![
+            &create_item,
+            &open_item,
+            &save_item,
+            &send_item,
+            &separator,
+            &settings_item,
+            &exit_item,
+        ]
+    } else {
+        vec![
+            &open_item,
+            &save_item,
+            &separator,
+            &settings_item,
+            &exit_item,
+        ]
+    };
+    let workbook_menu = Submenu::with_items(manager, "Տետր", true, &items)?;
+    Menu::with_items(manager, &[&workbook_menu])
 }
 
 #[tauri::command]
@@ -133,6 +179,7 @@ fn validate_image_entry_path(path: &str) -> Result<(), String> {
 
 fn write_workbook_archive(path: String, mut workbook: Value) -> Result<(), String> {
     let target_path = zip_path(PathBuf::from(path))?;
+    ensure_solution_sections(&mut workbook)?;
     let parent = target_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -166,6 +213,26 @@ fn write_workbook_archive(path: String, mut workbook: Value) -> Result<(), Strin
         .persist(&target_path)
         .map_err(|error| format!("Չհաջողվեց վերջնականացնել ZIP ֆայլը։ {}", error.error))?;
 
+    Ok(())
+}
+
+fn ensure_solution_sections(workbook: &mut Value) -> Result<(), String> {
+    let assignments = workbook
+        .get_mut("assignments")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Տետրում առաջադրանքների ցուցակ չկա։".to_string())?;
+    for assignment in assignments {
+        let assignment = assignment
+            .as_object_mut()
+            .ok_or_else(|| "Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։".to_string())?;
+        match assignment.get("solution") {
+            Some(Value::Array(_)) => {}
+            Some(_) => return Err("Առաջադրանքի լուծումները պետք է լինեն ցուցակ։".to_string()),
+            None => {
+                assignment.insert("solution".to_string(), Value::Array(Vec::new()));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -291,30 +358,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let create_item = MenuItem::with_id(app, "create", "Ստեղծել", true, None::<&str>)?;
-            let open_item = MenuItem::with_id(app, "open", "Բացել", true, None::<&str>)?;
-            let save_item = MenuItem::with_id(app, "save", "Պահպանել", true, None::<&str>)?;
-            let send_item = MenuItem::with_id(app, "send", "Ուղարկել", true, None::<&str>)?;
-            let settings_item =
-                MenuItem::with_id(app, "settings", "Կարգավորումներ", true, None::<&str>)?;
-            let exit_item = MenuItem::with_id(app, "exit", "Ելք", true, None::<&str>)?;
-            let separator = PredefinedMenuItem::separator(app)?;
-            let workbook_menu = Submenu::with_items(
-                app,
-                "Տետր",
-                true,
-                &[
-                    &create_item,
-                    &open_item,
-                    &save_item,
-                    &send_item,
-                    &separator,
-                    &settings_item,
-                    &exit_item,
-                ],
-            )?;
-            let menu = Menu::with_items(app, &[&workbook_menu])?;
-
+            let menu = build_app_menu(app, true)?;
             app.set_menu(menu)?;
             Ok(())
         })
@@ -322,7 +366,8 @@ pub fn run() {
             greet,
             exit_app,
             open_workbook,
-            save_workbook
+            save_workbook,
+            set_user_mode
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -363,6 +408,7 @@ mod tests {
             serde_json::from_reader(&mut entry).unwrap()
         };
         assert_eq!(document["formatVersion"], 1);
+        assert_eq!(document["assignments"][0]["solution"], json!([]));
         assert_eq!(
             document["assignments"][0]["problem"][0]["url"],
             "images/image-0001.png"
@@ -404,6 +450,35 @@ mod tests {
 
         assert_eq!(
             opened["assignments"][0]["problem"][0]["url"],
+            "data:image/png;base64,SGVsbG8="
+        );
+    }
+
+    #[test]
+    fn student_solution_images_round_trip_in_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        let workbook = json!({
+            "title": "Դաս",
+            "author": {
+                "name": "Ուսուցիչ",
+                "email": "teacher@example.com"
+            },
+            "created-at": "2026-11-11",
+            "assignments": [{
+                "problem": [],
+                "solution": [{
+                    "type": "image",
+                    "url": "data:image/png;base64,SGVsbG8="
+                }]
+            }]
+        });
+        write_workbook_archive(path.to_string_lossy().into_owned(), workbook).unwrap();
+
+        let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
+
+        assert_eq!(
+            opened["assignments"][0]["solution"][0]["url"],
             "data:image/png;base64,SGVsbG8="
         );
     }

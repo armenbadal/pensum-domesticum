@@ -3,8 +3,10 @@ const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
 const settingsDialog = document.querySelector("#settings-dialog");
 const modeSelect = document.querySelector("#user-mode");
+const settingsAuthorFields = document.querySelector("#settings-author-fields");
 const authorNameInput = document.querySelector("#author-name");
 const authorEmailInput = document.querySelector("#author-email");
+const addAssignmentButton = document.querySelector("#add-assignment");
 
 const USER_MODES = Object.freeze({
   TEACHER: "teacher",
@@ -51,17 +53,33 @@ function loadAuthorDetails() {
 let userMode = loadUserMode();
 let authorDetails = loadAuthorDetails();
 let hasUnsavedChanges = false;
+let hasLoadedWorkbook = false;
+let workbookAuthor = null;
+const assignmentSolutions = new WeakMap();
 
-function applyUserMode() {
+function applyUserMode(assignments = collectAssignments()) {
   const isTeacher = userMode === USER_MODES.TEACHER;
-  form.hidden = !isTeacher;
+  form.hidden = false;
+  form.elements.title.readOnly = !isTeacher;
+  addAssignmentButton.hidden = !isTeacher;
   modeSelect.value = userMode;
+  assignmentList.replaceChildren();
+  assignments.forEach(createAssignment);
+  updateSettingsAuthorFields();
+}
+
+function updateSettingsAuthorFields() {
+  const isTeacher = modeSelect.value === USER_MODES.TEACHER;
+  settingsAuthorFields.hidden = !isTeacher;
+  authorNameInput.disabled = !isTeacher;
+  authorEmailInput.disabled = !isTeacher;
 }
 
 function openSettings() {
   modeSelect.value = userMode;
   authorNameInput.value = authorDetails.name;
   authorEmailInput.value = authorDetails.email;
+  updateSettingsAuthorFields();
   if (!settingsDialog.open) settingsDialog.showModal();
 }
 
@@ -72,7 +90,9 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-settingsDialog.addEventListener("close", () => {
+modeSelect.addEventListener("change", updateSettingsAuthorFields);
+
+settingsDialog.addEventListener("close", async () => {
   if (settingsDialog.returnValue !== "save") return;
 
   const selectedMode = modeSelect.value;
@@ -81,21 +101,28 @@ settingsDialog.addEventListener("close", () => {
     return;
   }
 
-  const updatedAuthor = {
-    name: authorNameInput.value.trim(),
-    email: authorEmailInput.value.trim()
-  };
-  if (!updatedAuthor.name || !updatedAuthor.email || !authorEmailInput.checkValidity()) {
-    showStatus("Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։", "error");
-    return;
+  let updatedAuthor = authorDetails;
+  if (selectedMode === USER_MODES.TEACHER) {
+    updatedAuthor = {
+      name: authorNameInput.value.trim(),
+      email: authorEmailInput.value.trim()
+    };
+    if (!updatedAuthor.name || !updatedAuthor.email || !authorEmailInput.checkValidity()) {
+      showStatus("Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։", "error");
+      return;
+    }
   }
 
   try {
     localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
-    localStorage.setItem(AUTHOR_DETAILS_STORAGE_KEY, JSON.stringify(updatedAuthor));
+    if (selectedMode === USER_MODES.TEACHER) {
+      localStorage.setItem(AUTHOR_DETAILS_STORAGE_KEY, JSON.stringify(updatedAuthor));
+    }
+    await window.__TAURI__.core.invoke("set_user_mode", { mode: selectedMode });
+    const assignments = collectAssignments();
     userMode = selectedMode;
     authorDetails = updatedAuthor;
-    applyUserMode();
+    applyUserMode(assignments);
     showStatus("Կարգավորումները պահպանվեցին։");
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել ռեժիմը։ ${error.message}`, "error");
@@ -107,6 +134,14 @@ async function listenForSettingsMenu() {
     await window.__TAURI__.event.listen("open-settings", openSettings);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել կարգավորումների մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function syncNativeMenuMode() {
+  try {
+    await window.__TAURI__.core.invoke("set_user_mode", { mode: userMode });
+  } catch (error) {
+    showStatus(`Չհաջողվեց կիրառել օգտվողի ռեժիմի մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -126,6 +161,8 @@ async function createWorkbook() {
 
     form.elements.title.value = "";
     assignmentList.replaceChildren();
+    hasLoadedWorkbook = false;
+    workbookAuthor = null;
     hasUnsavedChanges = false;
     showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
   } catch (error) {
@@ -142,17 +179,23 @@ async function listenForCreateMenu() {
 }
 
 async function saveWorkbook() {
-  if (userMode !== USER_MODES.TEACHER || !form.reportValidity()) return;
-  if (!authorDetails.name.trim() || !authorDetails.email.trim()) {
-    showStatus("Կարգավորումներում լրացրու հեղինակի անունն ու էլ․ փոստը։", "error");
+  if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
+    showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
     return;
   }
-  const emailValidator = document.createElement("input");
-  emailValidator.type = "email";
-  emailValidator.value = authorDetails.email;
-  if (!emailValidator.checkValidity()) {
-    showStatus("Կարգավորումներում լրացրու վավեր էլ․ փոստ։", "error");
-    return;
+  if (!form.reportValidity()) return;
+  if (userMode === USER_MODES.TEACHER) {
+    if (!authorDetails.name.trim() || !authorDetails.email.trim()) {
+      showStatus("Կարգավորումներում լրացրու հեղինակի անունն ու էլ․ փոստը։", "error");
+      return;
+    }
+    const emailValidator = document.createElement("input");
+    emailValidator.type = "email";
+    emailValidator.value = authorDetails.email;
+    if (!emailValidator.checkValidity()) {
+      showStatus("Կարգավորումներում լրացրու վավեր էլ․ փոստ։", "error");
+      return;
+    }
   }
 
   try {
@@ -160,7 +203,7 @@ async function saveWorkbook() {
     const safeName = documentData.title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-") || "workbook";
     const path = await window.__TAURI__.dialog.save({
       title: "Պահպանել տետրը",
-      defaultPath: `${safeName}.pdw`,
+      defaultPath: `${safeName}${userMode === USER_MODES.STUDENT ? "-response" : ""}.pdw`,
       filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
     });
     if (!path) return;
@@ -186,8 +229,6 @@ async function listenForSaveMenu() {
 }
 
 async function openWorkbook() {
-  if (userMode !== USER_MODES.TEACHER) return;
-
   try {
     const path = await window.__TAURI__.dialog.open({
       title: "Բացել տետրը",
@@ -257,11 +298,12 @@ function updateAssignmentNumbers() {
   });
 }
 
-function createGridCell(rowIndex, columnIndex) {
+function createGridCell(rowIndex, columnIndex, editable) {
   const input = document.createElement("input");
   input.type = "text";
   input.maxLength = 1;
   input.autocomplete = "off";
+  input.readOnly = !editable;
   input.setAttribute("aria-label", `Տող ${rowIndex + 1}, վանդակ ${columnIndex + 1}`);
   input.addEventListener("input", () => {
     if (!input.value) return;
@@ -271,7 +313,7 @@ function createGridCell(rowIndex, columnIndex) {
   return input;
 }
 
-function createSquaredEditor(initialContent) {
+function createSquaredEditor(initialContent, editable = true) {
   const editor = document.createElement("div");
   const scroll = document.createElement("div");
   scroll.className = "grid-scroll";
@@ -293,7 +335,7 @@ function createSquaredEditor(initialContent) {
     row.className = "grid-row";
     row.setAttribute("role", "row");
     for (let column = 0; column < columnCount; column += 1) {
-      const cell = createGridCell(grid.children.length, column);
+      const cell = createGridCell(grid.children.length, column, editable);
       cell.value = values[column] ?? "";
       cell.setAttribute("role", "gridcell");
       row.append(cell);
@@ -327,7 +369,7 @@ function createSquaredEditor(initialContent) {
       columnCount += 1;
       grid.style.gridTemplateColumns = `repeat(${columnCount}, 6mm)`;
       grid.querySelectorAll(".grid-row").forEach((row, rowIndex) => {
-        const cell = createGridCell(rowIndex, row.children.length);
+        const cell = createGridCell(rowIndex, row.children.length, editable);
         cell.setAttribute("role", "gridcell");
         row.append(cell);
       });
@@ -348,11 +390,12 @@ function createSquaredEditor(initialContent) {
       tools.children[index].setAttribute("aria-label", label);
       tools.children[index].title = label;
     });
+  tools.hidden = !editable;
   editor.append(scroll, tools);
   return editor;
 }
 
-function createContentBlock(type, index, imageUrl, initialContent = "") {
+function createContentBlock(type, index, imageUrl, initialContent = "", editable = true) {
   const block = document.createElement("div");
   block.className = "content-block";
   block.dataset.type = type;
@@ -361,6 +404,7 @@ function createContentBlock(type, index, imageUrl, initialContent = "") {
     block.remove();
     clearOutput();
   });
+  removeButton.hidden = !editable;
   removeButton.setAttribute("aria-label", "Հեռացնել բլոկը");
   removeButton.title = "Հեռացնել";
 
@@ -370,6 +414,7 @@ function createContentBlock(type, index, imageUrl, initialContent = "") {
     textarea.setAttribute("aria-label", "Տեքստի բովանդակություն");
     textarea.placeholder = "Տեքստ";
     textarea.value = initialContent;
+    textarea.readOnly = !editable;
     block.append(textarea, removeButton);
     return block;
   }
@@ -387,7 +432,7 @@ function createContentBlock(type, index, imageUrl, initialContent = "") {
 
   block.classList.add("content-block-squared");
   removeButton.classList.add("content-block-squared-remove");
-  block.append(createSquaredEditor(initialContent), removeButton);
+  block.append(createSquaredEditor(initialContent, editable), removeButton);
   return block;
 }
 
@@ -429,7 +474,7 @@ function openImagePicker(blocks) {
   input.click();
 }
 
-function createContentSection(name, title, initialBlocks = []) {
+function createContentSection(name, title, initialBlocks = [], editable = true) {
   const section = document.createElement("section");
   section.className = "content-section";
   section.dataset.section = name;
@@ -445,11 +490,11 @@ function createContentSection(name, title, initialBlocks = []) {
   initialBlocks.forEach((savedBlock, index) => {
     let block;
     if (savedBlock.type === "text") {
-      block = createContentBlock("text", index, undefined, savedBlock.content);
+      block = createContentBlock("text", index, undefined, savedBlock.content, editable);
     } else if (savedBlock.type === "image") {
-      block = createContentBlock("image", index, savedBlock.url);
+      block = createContentBlock("image", index, savedBlock.url, "", editable);
     } else {
-      block = createContentBlock("squared", index, undefined, savedBlock.content);
+      block = createContentBlock("squared", index, undefined, savedBlock.content, editable);
     }
     blocks.append(block);
   });
@@ -472,6 +517,7 @@ function createContentSection(name, title, initialBlocks = []) {
   tools.children[1].title = "Պատկեր";
   tools.children[2].setAttribute("aria-label", "Ավելացնել վանդակավոր դաշտ");
   tools.children[2].title = "Վանդակավոր դաշտ";
+  tools.hidden = !editable;
   section.append(heading, blocks, tools);
   return section;
 }
@@ -479,6 +525,11 @@ function createContentSection(name, title, initialBlocks = []) {
 function createAssignment(savedAssignment = { problem: [] }) {
   const card = document.createElement("article");
   card.className = "assignment-card";
+  const isTeacher = userMode === USER_MODES.TEACHER;
+  assignmentSolutions.set(
+    card,
+    Array.isArray(savedAssignment.solution) ? savedAssignment.solution : []
+  );
 
   const heading = document.createElement("div");
   heading.className = "assignment-heading";
@@ -488,6 +539,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
     card.remove();
     updateAssignmentNumbers();
   });
+  removeButton.hidden = !isTeacher;
   removeButton.setAttribute("aria-label", "Հեռացնել առաջադրանքը");
   removeButton.title = "Հեռացնել առաջադրանքը";
   heading.append(
@@ -499,8 +551,13 @@ function createAssignment(savedAssignment = { problem: [] }) {
   const sections = document.createElement("div");
   sections.className = "assignment-sections";
   sections.append(
-    createContentSection("problem", "Խնդիր", savedAssignment.problem),
+    createContentSection("problem", "Խնդիր", savedAssignment.problem, isTeacher),
   );
+  if (!isTeacher) {
+    sections.append(
+      createContentSection("solution", "Լուծում", assignmentSolutions.get(card), true)
+    );
+  }
   card.append(heading, sections);
   assignmentList.append(card);
   updateAssignmentNumbers();
@@ -527,19 +584,25 @@ function collectBlocks(section) {
   });
 }
 
-function createDocument() {
-  const assignments = [...assignmentList.querySelectorAll(".assignment-card")].map(card => {
+function collectAssignments() {
+  return [...assignmentList.querySelectorAll(".assignment-card")].map(card => {
     const problemSection = card.querySelector('[data-section="problem"]');
+    const solutionSection = card.querySelector('[data-section="solution"]');
     return {
       problem: collectBlocks(problemSection),
+      solution: solutionSection
+        ? collectBlocks(solutionSection)
+        : assignmentSolutions.get(card) ?? []
     };
   });
+}
 
+function createDocument() {
   return {
     title: form.elements.title.value,
-    author: { ...authorDetails },
+    author: userMode === USER_MODES.STUDENT ? workbookAuthor : { ...authorDetails },
     "created-at": getLocalDateString(),
-    assignments
+    assignments: collectAssignments()
   };
 }
 
@@ -569,21 +632,28 @@ function validateWorkbookDocument(documentData) {
     throw new Error("Տետրում առաջադրանքների ցուցակ չկա։");
   }
   for (const assignment of documentData.assignments) {
-    if (!assignment || typeof assignment !== "object" || !Array.isArray(assignment.problem)) {
+    if (
+      !assignment ||
+      typeof assignment !== "object" ||
+      !Array.isArray(assignment.problem) ||
+      (assignment.solution !== undefined && !Array.isArray(assignment.solution))
+    ) {
       throw new Error("Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։");
     }
-    for (const block of assignment.problem) {
-      if (!block || typeof block !== "object") {
-        throw new Error("Բովանդակության բլոկի տվյալները սխալ ձևաչափ ունեն։");
+    for (const blocks of [assignment.problem, assignment.solution ?? []]) {
+      for (const block of blocks) {
+        if (!block || typeof block !== "object") {
+          throw new Error("Բովանդակության բլոկի տվյալները սխալ ձևաչափ ունեն։");
+        }
+        if (block.type === "text" && typeof block.content === "string") continue;
+        if (block.type === "image" && typeof block.url === "string" && block.url.startsWith("data:image/")) continue;
+        if (
+          block.type === "squared" &&
+          Array.isArray(block.content) &&
+          block.content.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"))
+        ) continue;
+        throw new Error("Բովանդակության բլոկի տեսակը կամ տվյալները չեն աջակցվում։");
       }
-      if (block.type === "text" && typeof block.content === "string") continue;
-      if (block.type === "image" && typeof block.url === "string" && block.url.startsWith("data:image/")) continue;
-      if (
-        block.type === "squared" &&
-        Array.isArray(block.content) &&
-        block.content.every(row => Array.isArray(row) && row.every(cell => typeof cell === "string"))
-      ) continue;
-      throw new Error("Բովանդակության բլոկի տեսակը կամ տվյալները չեն աջակցվում։");
     }
   }
 }
@@ -591,6 +661,8 @@ function validateWorkbookDocument(documentData) {
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
   form.elements.title.value = documentData.title;
+  workbookAuthor = documentData.author;
+  hasLoadedWorkbook = true;
   assignmentList.replaceChildren();
   documentData.assignments.forEach(createAssignment);
   hasUnsavedChanges = false;
@@ -612,6 +684,7 @@ form.addEventListener("submit", event => {
 });
 
 applyUserMode();
+syncNativeMenuMode();
 listenForCreateMenu();
 listenForSettingsMenu();
 listenForSaveMenu();
