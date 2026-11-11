@@ -1,3 +1,4 @@
+use tauri::Emitter;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -10,6 +11,13 @@ fn greet(name: &str) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .on_menu_event(|app, event| {
+            if event.id() == "settings" {
+                if let Err(error) = app.emit("open-settings", ()) {
+                    eprintln!("Failed to open settings: {error}");
+                }
+            }
+        })
         .setup(|app| {
             let create_item = MenuItem::with_id(app, "create", "Ստեղծել", true, None::<&str>)?;
             let save_item = MenuItem::with_id(app, "save", "Պահպանել", true, None::<&str>)?;
