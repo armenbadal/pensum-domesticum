@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Տետր",
+  "productName": "Տնային աշխատանք",
   "version": "0.1.0",
   "identifier": "armen.badalian.pensum-domesticum",
   "build": {
@@ -10,7 +10,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Տետր",
+        "title": "Տնային աշխատանք",
         "width": 800,
         "height": 1000
       }
