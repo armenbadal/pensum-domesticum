@@ -63,6 +63,7 @@ let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովոր
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
+let workbookVerified = false;
 let workbookTeacher = null;
 let workbookStudent = null;
 const assignmentSolutions = new WeakMap();
@@ -141,7 +142,8 @@ settingsDialog.addEventListener("close", async () => {
     localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: selectedMode,
-      solved: workbookSolved
+      solved: workbookSolved,
+      verified: workbookVerified
     });
     const assignments = collectAssignments();
     userMode = selectedMode;
@@ -169,7 +171,8 @@ async function syncNativeMenuMode() {
   try {
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: userMode,
-      solved: workbookSolved
+      solved: workbookSolved,
+      verified: workbookVerified
     });
   } catch (error) {
     showStatus(`Չհաջողվեց կիրառել օգտվողի ռեժիմի մենյուն։ ${error.message}`, "error");
@@ -195,6 +198,7 @@ async function createWorkbook() {
     assignmentList.replaceChildren(addAssignmentButton);
     hasLoadedWorkbook = false;
     workbookSolved = false;
+    workbookVerified = false;
     workbookTeacher = null;
     workbookStudent = null;
     workbookGradeInput.value = "";
@@ -216,6 +220,10 @@ async function listenForCreateMenu() {
 }
 
 async function saveWorkbook() {
+  if (userMode === USER_MODES.STUDENT && workbookVerified) {
+    showStatus("Ստուգված տետրը միայն դիտման համար է։", "error");
+    return;
+  }
   if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
     showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
     return;
@@ -263,6 +271,7 @@ async function saveWorkbook() {
       workbook: documentData
     });
     workbookSolved = documentData.solved;
+    workbookVerified = documentData.verified !== undefined;
     hasUnsavedChanges = false;
     await syncNativeMenuMode();
     showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
@@ -595,6 +604,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
   card.className = "assignment-card";
   const isTeacher = userMode === USER_MODES.TEACHER;
   const canEditTeacherContent = isTeacher && !workbookSolved;
+  const canEditStudentSolution = !isTeacher && !workbookVerified;
   const savedSolution = Array.isArray(savedAssignment.solution) ? savedAssignment.solution : [];
   assignmentSolutions.set(card, savedSolution);
 
@@ -623,7 +633,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
   );
   if (!isTeacher || savedSolution.length > 0 || workbookSolved) {
     sections.append(
-      createContentSection("solution", "Լուծում", savedSolution, !isTeacher)
+      createContentSection("solution", "Լուծում", savedSolution, canEditStudentSolution)
     );
   }
   if (workbookSolved) {
@@ -774,6 +784,7 @@ function loadWorkbookDocument(documentData) {
   workbookStudent = documentData.student ?? null;
   hasLoadedWorkbook = true;
   workbookSolved = documentData.solved === true;
+  workbookVerified = documentData.verified !== undefined;
   workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
   assignmentList.replaceChildren(addAssignmentButton);
   documentData.assignments.forEach(createAssignment);

@@ -22,7 +22,7 @@ fn exit_app(app: AppHandle) {
 }
 
 #[tauri::command]
-fn set_user_mode(app: AppHandle, mode: String, solved: bool) -> Result<(), String> {
+fn set_user_mode(app: AppHandle, mode: String, solved: bool, verified: bool) -> Result<(), String> {
     let is_teacher = match mode.as_str() {
         "teacher" => true,
         "student" => false,
@@ -38,7 +38,7 @@ fn set_user_mode(app: AppHandle, mode: String, solved: bool) -> Result<(), Strin
         .set_title(title)
         .map_err(|error| format!("Չհաջողվեց փոխել պատուհանի վերնագիրը։ {error}"))?;
 
-    let menu = build_app_menu(&app, is_teacher, solved)
+    let menu = build_app_menu(&app, is_teacher, solved, verified)
         .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
     app.set_menu(menu)
         .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
@@ -49,6 +49,7 @@ fn build_app_menu<M: Manager<Wry>>(
     manager: &M,
     is_teacher: bool,
     workbook_solved: bool,
+    workbook_verified: bool,
 ) -> tauri::Result<Menu<Wry>> {
     let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
     let open_item = MenuItem::with_id(manager, "open", "Բացել", true, None::<&str>)?;
@@ -78,6 +79,8 @@ fn build_app_menu<M: Manager<Wry>>(
             &settings_item,
             &exit_item,
         ]
+    } else if workbook_verified {
+        vec![&open_item, &separator, &settings_item, &exit_item]
     } else {
         vec![
             &open_item,
@@ -403,7 +406,7 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = build_app_menu(app, true, false)?;
+            let menu = build_app_menu(app, true, false, false)?;
             app.set_menu(menu)?;
             Ok(())
         })
