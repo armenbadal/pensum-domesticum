@@ -58,7 +58,7 @@ function loadProfileDetails(storageKey, profileName) {
 
 let userMode = loadUserMode();
 let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
-let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "աշակերտի");
+let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի");
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
@@ -88,8 +88,8 @@ function updateReviewControls() {
 function updateSettingsProfileFields() {
   const isTeacher = modeSelect.value === USER_MODES.TEACHER;
   const details = isTeacher ? teacherDetails : studentDetails;
-  profileNameLabel.textContent = isTeacher ? "Դասատուի անուն" : "Աշակերտի անուն";
-  profileEmailLabel.textContent = isTeacher ? "Դասատուի էլ․ փոստ" : "Աշակերտի էլ․ փոստ";
+  profileNameLabel.textContent = isTeacher ? "Դասատուի անուն" : "Սովորողի անուն";
+  profileEmailLabel.textContent = isTeacher ? "Դասատուի էլ․ փոստ" : "Սովորողի էլ․ փոստ";
   profileNameInput.value = details.name;
   profileEmailInput.value = details.email;
 }
@@ -127,7 +127,7 @@ settingsDialog.addEventListener("close", async () => {
     showStatus(
       isTeacher
         ? "Լրացրու դասատուի անունն ու վավեր էլ․ փոստը։"
-        : "Լրացրու աշակերտի անունն ու վավեր էլ․ փոստը։",
+        : "Լրացրու սովորողի անունն ու վավեր էլ․ փոստը։",
       "error"
     );
     return;
@@ -232,14 +232,14 @@ async function saveWorkbook() {
     }
   } else {
     if (!studentDetails.name.trim() || !studentDetails.email.trim()) {
-      showStatus("Կարգավորումներում լրացրու աշակերտի անունն ու էլ․ փոստը։", "error");
+      showStatus("Կարգավորումներում լրացրու սովորողի անունն ու էլ․ փոստը։", "error");
       return;
     }
     const emailValidator = document.createElement("input");
     emailValidator.type = "email";
     emailValidator.value = studentDetails.email;
     if (!emailValidator.checkValidity()) {
-      showStatus("Կարգավորումներում լրացրու աշակերտի վավեր էլ․ փոստը։", "error");
+      showStatus("Կարգավորումներում լրացրու սովորողի վավեր էլ․ փոստը։", "error");
       return;
     }
   }

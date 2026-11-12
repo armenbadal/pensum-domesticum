@@ -28,6 +28,16 @@ fn set_user_mode(app: AppHandle, mode: String, solved: bool) -> Result<(), Strin
         "student" => false,
         _ => return Err("Օգտվողի ռեժիմը սխալ է։".to_string()),
     };
+    let title = if is_teacher {
+        "Տնային աշխատանք (դասատու)"
+    } else {
+        "Տնային աշխատանք (սովորող)"
+    };
+    app.get_webview_window("main")
+        .ok_or_else(|| "Ծրագրի հիմնական պատուհանը չի գտնվել։".to_string())?
+        .set_title(title)
+        .map_err(|error| format!("Չհաջողվեց փոխել պատուհանի վերնագիրը։ {error}"))?;
+
     let menu = build_app_menu(&app, is_teacher, solved)
         .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
     app.set_menu(menu)
@@ -506,7 +516,7 @@ mod tests {
                 "email": "teacher@example.com"
             },
             "student": {
-                "name": "Աշակերտ",
+                "name": "Սովորող",
                 "email": "student@example.com"
             },
             "verified": {
@@ -531,7 +541,7 @@ mod tests {
             "data:image/png;base64,SGVsbG8="
         );
         assert_eq!(opened["teacher"]["name"], "Ուսուցիչ");
-        assert_eq!(opened["student"]["name"], "Աշակերտ");
+        assert_eq!(opened["student"]["name"], "Սովորող");
         assert_eq!(opened["verified"]["grade"], 18);
         assert_eq!(opened["assignments"][0]["teacher-comment"], "Լավ աշխատանք։");
         assert_eq!(opened["solved"], true);
