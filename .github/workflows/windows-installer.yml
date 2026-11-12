@@ -1,0 +1,57 @@
+name: Windows installer
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0.0" --locked
+
+      - name: Validate version tag
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Tag '$tag' must use the vMAJOR.MINOR.PATCH format."
+          }
+
+          $tagVersion = $tag.Substring(1)
+          $tauriConfig = Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json
+          $cargoToml = Get-Content "src-tauri/Cargo.toml" -Raw
+          $cargoVersionMatch = [regex]::Match($cargoToml, '(?m)^version\s*=\s*"([^"]+)"')
+
+          if (-not $cargoVersionMatch.Success) {
+            throw "Could not read the Rust package version from src-tauri/Cargo.toml."
+          }
+
+          $cargoVersion = $cargoVersionMatch.Groups[1].Value
+          if ($tagVersion -ne $tauriConfig.version -or $tagVersion -ne $cargoVersion) {
+            throw "Tag version '$tagVersion' must match tauri.conf.json ($($tauriConfig.version)) and Cargo.toml ($cargoVersion)."
+          }
+
+      - name: Build and publish Windows installer
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          tauriScript: cargo tauri
+          args: --bundles nsis
+          tagName: ${{ github.ref_name }}
+          releaseName: Pensum Domesticum ${{ github.ref_name }}
+          releaseBody: Windows installer for the current user.
+          releaseDraft: false
+          prerelease: false
+          uploadUpdaterJson: false
