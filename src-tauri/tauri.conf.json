@@ -22,6 +22,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "fileAssociations": [
+      {
+        "ext": ["pdw"],
+        "name": "Pensum Domesticum workbook",
+        "description": "Տնային աշխատանքի տետր"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser"

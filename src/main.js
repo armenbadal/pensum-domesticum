@@ -66,6 +66,7 @@ let workbookSolved = false;
 let workbookVerified = false;
 let workbookTeacher = null;
 let workbookStudent = null;
+let pendingWorkbookProcessing = Promise.resolve();
 const assignmentSolutions = new WeakMap();
 
 function applyUserMode(assignments = collectAssignments()) {
@@ -288,6 +289,13 @@ async function listenForSaveMenu() {
   }
 }
 
+async function openWorkbookFromPath(path) {
+  if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
+  const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
+  loadWorkbookDocument(documentData);
+  await syncNativeMenuMode();
+}
+
 async function openWorkbook() {
   try {
     const path = await window.__TAURI__.dialog.open({
@@ -298,11 +306,7 @@ async function openWorkbook() {
     });
     if (!path) return;
 
-    if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
-
-    const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
-    loadWorkbookDocument(documentData);
-    await syncNativeMenuMode();
+    await openWorkbookFromPath(path);
   } catch (error) {
     showStatus(`Չհաջողվեց բացել տետրը։ ${error.message}`, "error");
   }
@@ -313,6 +317,31 @@ async function listenForOpenMenu() {
     await window.__TAURI__.event.listen("open-workbook", openWorkbook);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել բացման մենյուն։ ${error.message}`, "error");
+  }
+}
+
+function processPendingWorkbookFiles() {
+  pendingWorkbookProcessing = pendingWorkbookProcessing.then(async () => {
+    const paths = await window.__TAURI__.core.invoke("take_pending_workbook_paths");
+    for (const path of paths) {
+      try {
+        await openWorkbookFromPath(path);
+      } catch (error) {
+        showStatus(`Չհաջողվեց բացել ստացված տետրը։ ${error.message}`, "error");
+      }
+    }
+  }).catch(error => {
+    showStatus(`Չհաջողվեց ստանալ բացվող տետրի ուղին։ ${error.message}`, "error");
+  });
+  return pendingWorkbookProcessing;
+}
+
+async function listenForPendingWorkbookFiles() {
+  try {
+    await window.__TAURI__.event.listen("open-workbook-files", processPendingWorkbookFiles);
+    await processPendingWorkbookFiles();
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել ֆայլի բացման հոսքը։ ${error.message}`, "error");
   }
 }
 
@@ -820,4 +849,5 @@ listenForCreateMenu();
 listenForSettingsMenu();
 listenForSaveMenu();
 listenForOpenMenu();
+listenForPendingWorkbookFiles();
 listenForExitMenu();

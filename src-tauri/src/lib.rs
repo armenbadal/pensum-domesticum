@@ -1,14 +1,57 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::Value;
 use std::{
+    ffi::OsStr,
     fs::File,
     io::{Read, Seek, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tempfile::NamedTempFile;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+#[derive(Default)]
+struct PendingWorkbookPaths(Mutex<Vec<PathBuf>>);
+
+impl PendingWorkbookPaths {
+    fn new(paths: Vec<PathBuf>) -> Self {
+        Self(Mutex::new(paths))
+    }
+
+    fn enqueue(&self, paths: impl IntoIterator<Item = PathBuf>) -> Result<(), String> {
+        self.0
+            .lock()
+            .map_err(|error| format!("Չհաջողվեց հերթագրել բացվող տետրը։ {error}"))?
+            .extend(paths);
+        Ok(())
+    }
+}
+
+fn collect_workbook_paths<I, S>(args: I, working_directory: &Path) -> Vec<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    args.into_iter()
+        .filter_map(|arg| {
+            let path = PathBuf::from(arg.as_ref());
+            let is_workbook = path
+                .extension()
+                .is_some_and(|extension| extension.to_string_lossy().eq_ignore_ascii_case("pdw"));
+            if !is_workbook {
+                return None;
+            }
+
+            Some(if path.is_absolute() {
+                path
+            } else {
+                working_directory.join(path)
+            })
+        })
+        .collect()
+}
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -106,6 +149,26 @@ async fn open_workbook(path: String) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || read_workbook_archive(path))
         .await
         .map_err(|error| format!("Չհաջողվեց բացել ZIP արխիվը։ {error}"))?
+}
+
+#[tauri::command]
+fn take_pending_workbook_paths(
+    state: State<'_, PendingWorkbookPaths>,
+) -> Result<Vec<String>, String> {
+    let mut pending = state
+        .0
+        .lock()
+        .map_err(|error| format!("Չհաջողվեց ստանալ բացվող տետրի ուղին։ {error}"))?;
+    let paths = pending
+        .iter()
+        .map(|path| {
+            path.to_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "Տետրի ֆայլի ուղին չի կարող ներկայացվել որպես տեքստ։".to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    pending.clear();
+    Ok(paths)
 }
 
 fn read_workbook_archive(path: String) -> Result<Value, String> {
@@ -379,7 +442,40 @@ fn decode_image_data_url(data_url: &str) -> Result<(String, Vec<u8>), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let working_directory = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(error) => {
+            eprintln!("Չհաջողվեց որոշել մեկնարկային պանակը։ {error}");
+            PathBuf::new()
+        }
+    };
+    let startup_paths = collect_workbook_paths(std::env::args_os().skip(1), &working_directory);
+    let mut builder = tauri::Builder::default().manage(PendingWorkbookPaths::new(startup_paths));
+
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let paths = collect_workbook_paths(args, Path::new(&cwd));
+            if !paths.is_empty() {
+                match app.state::<PendingWorkbookPaths>().enqueue(paths) {
+                    Ok(()) => {
+                        if let Err(error) = app.emit("open-workbook-files", ()) {
+                            eprintln!("Չհաջողվեց փոխանցել բացվող տետրը։ {error}");
+                        }
+                    }
+                    Err(error) => eprintln!("{error}"),
+                }
+            }
+
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.set_focus() {
+                    eprintln!("Չհաջողվեց ակտիվացնել ծրագրի պատուհանը։ {error}");
+                }
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
@@ -414,6 +510,7 @@ pub fn run() {
             greet,
             exit_app,
             open_workbook,
+            take_pending_workbook_paths,
             save_workbook,
             set_user_mode
         ])
@@ -427,6 +524,23 @@ mod tests {
     use serde_json::json;
     use std::{fs::File, io::Read};
     use zip::ZipArchive;
+
+    #[test]
+    fn command_line_workbook_paths_are_filtered_and_resolved() {
+        let working_directory = Path::new("working");
+        let paths = collect_workbook_paths(
+            ["pensum.exe", "lesson.pdw", "response.PDW", "notes.txt"],
+            working_directory,
+        );
+
+        assert_eq!(
+            paths,
+            vec![
+                working_directory.join("lesson.pdw"),
+                working_directory.join("response.PDW")
+            ]
+        );
+    }
 
     #[test]
     fn zip_contains_versioned_json_and_extracted_images() {
