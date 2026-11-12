@@ -56,7 +56,7 @@ cargo tauri build
 
 ```sh
 node --check src/main.js
-node --check src/components/math-grid/math-grid.js
+node --input-type=module --check < src/components/math-grid/math-grid.js
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 ```

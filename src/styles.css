@@ -36,22 +36,6 @@ button {
   cursor: pointer;
 }
 
-.topbar {
-  padding: 28px max(24px, calc((100% - 1180px) / 2));
-  color: white;
-  background: linear-gradient(115deg, #263f85, #3159c9);
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: clamp(1.4rem, 3vw, 2rem);
-}
-
-.topbar p {
-  margin: 8px 0 0;
-  color: #dfe7ff;
-}
-
 main {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -181,9 +165,7 @@ textarea {
 
 .assignments-heading,
 .assignment-heading,
-.section-heading,
-.block-heading,
-.output-heading {
+.section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -196,8 +178,7 @@ textarea {
 
 .assignments-heading h3,
 .assignment-heading h4,
-.section-heading h4,
-.output-heading h2 {
+.section-heading h4 {
   margin: 0;
 }
 
@@ -394,13 +375,6 @@ textarea {
   object-position: center;
 }
 
-.block-heading {
-  margin-bottom: 10px;
-  color: var(--muted);
-  font-size: .85rem;
-  font-weight: 650;
-}
-
 .grid-scroll {
   min-width: 0;
   flex: 1 1 auto;
@@ -475,12 +449,6 @@ textarea {
   background: #ffedef;
 }
 
-.button-small {
-  min-height: 32px;
-  padding: 5px 9px;
-  font-size: .83rem;
-}
-
 .remove-block-button {
   width: 24px;
   min-width: 24px;
@@ -528,20 +496,10 @@ textarea {
   color: #24744d;
 }
 
-@media (max-width: 860px) {
-  main {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 560px) {
   main {
     width: min(100% - 24px, 520px);
     margin-top: 16px;
-  }
-
-  .topbar {
-    padding: 22px 16px;
   }
 
   .status {

@@ -67,7 +67,6 @@ let workbookVerified = false;
 let workbookTeacher = null;
 let workbookStudent = null;
 let pendingWorkbookProcessing = Promise.resolve();
-const assignmentSolutions = new WeakMap();
 
 function applyUserMode(assignments = collectAssignments()) {
   const isTeacher = userMode === USER_MODES.TEACHER;
@@ -143,7 +142,6 @@ settingsDialog.addEventListener("close", async () => {
     localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: selectedMode,
-      solved: workbookSolved,
       verified: workbookVerified
     });
     const assignments = collectAssignments();
@@ -172,7 +170,6 @@ async function syncNativeMenuMode() {
   try {
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: userMode,
-      solved: workbookSolved,
       verified: workbookVerified
     });
   } catch (error) {
@@ -451,7 +448,7 @@ function createSquaredEditor(initialContent, editable = true) {
   return scroll;
 }
 
-function createContentBlock(type, index, imageUrl, initialContent = "", editable = true) {
+function createContentBlock(type, imageUrl, initialContent = "", editable = true) {
   const block = document.createElement("div");
   block.className = "content-block";
   block.dataset.type = type;
@@ -519,7 +516,7 @@ function openImagePicker(blocks) {
         status.className = "status status-error";
         return;
       }
-      blocks.append(createContentBlock("image", blocks.children.length, reader.result));
+      blocks.append(createContentBlock("image", reader.result));
       clearOutput();
     });
     reader.addEventListener("error", () => {
@@ -544,14 +541,14 @@ function createContentSection(name, title, initialBlocks = [], editable = true) 
 
   const blocks = document.createElement("div");
   blocks.className = "block-list";
-  initialBlocks.forEach((savedBlock, index) => {
+  initialBlocks.forEach(savedBlock => {
     let block;
     if (savedBlock.type === "text") {
-      block = createContentBlock("text", index, undefined, savedBlock.content, editable);
+      block = createContentBlock("text", undefined, savedBlock.content, editable);
     } else if (savedBlock.type === "image") {
-      block = createContentBlock("image", index, savedBlock.url, "", editable);
+      block = createContentBlock("image", savedBlock.url, "", editable);
     } else {
-      block = createContentBlock("squared", index, undefined, savedBlock.content, editable);
+      block = createContentBlock("squared", undefined, savedBlock.content, editable);
     }
     blocks.append(block);
   });
@@ -559,12 +556,12 @@ function createContentSection(name, title, initialBlocks = [], editable = true) 
   tools.className = "add-block-tools";
   tools.append(
     makeButton("", "add-block-button add-block-button-text", () => {
-      blocks.append(createContentBlock("text", blocks.children.length));
+      blocks.append(createContentBlock("text"));
       clearOutput();
     }),
     makeButton("", "add-block-button add-block-button-image", () => openImagePicker(blocks)),
     makeButton("", "add-block-button add-block-button-grid", () => {
-      blocks.append(createContentBlock("squared", blocks.children.length));
+      blocks.append(createContentBlock("squared"));
       clearOutput();
     })
   );
@@ -635,7 +632,6 @@ function createAssignment(savedAssignment = { problem: [] }) {
   const canEditTeacherContent = isTeacher && !workbookSolved;
   const canEditStudentSolution = !isTeacher && !workbookVerified;
   const savedSolution = Array.isArray(savedAssignment.solution) ? savedAssignment.solution : [];
-  assignmentSolutions.set(card, savedSolution);
 
   const heading = document.createElement("div");
   heading.className = "assignment-heading";
@@ -716,7 +712,7 @@ function collectAssignments() {
       problem: collectBlocks(problemSection),
       solution: solutionSection
         ? collectBlocks(solutionSection)
-        : assignmentSolutions.get(card) ?? [],
+        : [],
       ...(teacherComment?.value.trim()
         ? { "teacher-comment": teacherComment.value }
         : {})

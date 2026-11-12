@@ -168,16 +168,8 @@ class MathGrid extends HTMLElement {
           z-index: 2;
         }
 
-        .grid input.thick-top {
-          border-top: 2px solid #111;
-        }
-
         .grid input.thick-left {
           border-left: 2px solid #111;
-        }
-
-        .grid input.thick-right {
-          border-right: 2px solid #111;
         }
 
         .grid input.thick-bottom {
@@ -682,7 +674,7 @@ class MathGrid extends HTMLElement {
 
   #clearSelectedBorders() {
     for (const index of this.#selectedCells) {
-      for (const edge of ["top", "right", "bottom", "left"]) {
+      for (const edge of ["bottom", "left"]) {
         this.#thickBorders.delete(`${index}:${edge}`);
       }
     }
@@ -698,7 +690,7 @@ class MathGrid extends HTMLElement {
     this.#cells.forEach((cell, index) => {
       cell.classList.toggle("selected-cell", this.#selectedCells.has(index));
       cell.classList.toggle("active-cell", index === this.#activeCell);
-      for (const edge of ["top", "right", "bottom", "left"]) {
+      for (const edge of ["bottom", "left"]) {
         cell.classList.toggle(`thick-${edge}`, this.#thickBorders.has(`${index}:${edge}`));
       }
     });

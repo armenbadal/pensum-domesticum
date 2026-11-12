@@ -53,19 +53,13 @@ where
         .collect()
 }
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     app.exit(0);
 }
 
 #[tauri::command]
-fn set_user_mode(app: AppHandle, mode: String, solved: bool, verified: bool) -> Result<(), String> {
+fn set_user_mode(app: AppHandle, mode: String, verified: bool) -> Result<(), String> {
     let is_teacher = match mode.as_str() {
         "teacher" => true,
         "student" => false,
@@ -81,7 +75,7 @@ fn set_user_mode(app: AppHandle, mode: String, solved: bool, verified: bool) -> 
         .set_title(title)
         .map_err(|error| format!("Չհաջողվեց փոխել պատուհանի վերնագիրը։ {error}"))?;
 
-    let menu = build_app_menu(&app, is_teacher, solved, verified)
+    let menu = build_app_menu(&app, is_teacher, verified)
         .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
     app.set_menu(menu)
         .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
@@ -91,7 +85,6 @@ fn set_user_mode(app: AppHandle, mode: String, solved: bool, verified: bool) -> 
 fn build_app_menu<M: Manager<Wry>>(
     manager: &M,
     is_teacher: bool,
-    workbook_solved: bool,
     workbook_verified: bool,
 ) -> tauri::Result<Menu<Wry>> {
     let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
@@ -102,17 +95,7 @@ fn build_app_menu<M: Manager<Wry>>(
         MenuItem::with_id(manager, "settings", "Կարգավորումներ", true, None::<&str>)?;
     let exit_item = MenuItem::with_id(manager, "exit", "Ելք", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(manager)?;
-    let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher && workbook_solved {
-        vec![
-            &create_item,
-            &open_item,
-            &save_item,
-            &send_item,
-            &separator,
-            &settings_item,
-            &exit_item,
-        ]
-    } else if is_teacher {
+    let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher {
         vec![
             &create_item,
             &open_item,
@@ -502,12 +485,11 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = build_app_menu(app, true, false, false)?;
+            let menu = build_app_menu(app, true, false)?;
             app.set_menu(menu)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             exit_app,
             open_workbook,
             take_pending_workbook_paths,
