@@ -28,6 +28,8 @@ mime_guess = "2.0.5"
 tempfile = "3.27.0"
 zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
 tauri-plugin-single-instance = "2"
+docx-rs = "0.4.22"
+image = { version = "0.25", default-features = false, features = ["bmp", "gif", "jpeg", "png", "tiff"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

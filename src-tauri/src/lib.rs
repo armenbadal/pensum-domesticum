@@ -1,9 +1,15 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use docx_rs::{
+    BorderType, Docx, Paragraph, Pic, Run, Style, StyleType, Table, TableCell, TableCellBorder,
+    TableCellBorderPosition, TableRow,
+};
+use image::{GenericImageView, ImageFormat};
+use serde::Deserialize;
 use serde_json::Value;
 use std::{
     ffi::OsStr,
     fs::File,
-    io::{Read, Seek, Write},
+    io::{Cursor, Read, Seek, Write},
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -90,6 +96,8 @@ fn build_app_menu<M: Manager<Wry>>(
     let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
     let open_item = MenuItem::with_id(manager, "open", "Բացել", true, None::<&str>)?;
     let save_item = MenuItem::with_id(manager, "save", "Պահպանել", true, None::<&str>)?;
+    let export_word_item =
+        MenuItem::with_id(manager, "export-word", "Արտահանել Word", true, None::<&str>)?;
     let send_item = MenuItem::with_id(manager, "send", "Ուղարկել", true, None::<&str>)?;
     let settings_item =
         MenuItem::with_id(manager, "settings", "Կարգավորումներ", true, None::<&str>)?;
@@ -100,17 +108,25 @@ fn build_app_menu<M: Manager<Wry>>(
             &create_item,
             &open_item,
             &save_item,
+            &export_word_item,
             &send_item,
             &separator,
             &settings_item,
             &exit_item,
         ]
     } else if workbook_verified {
-        vec![&open_item, &separator, &settings_item, &exit_item]
+        vec![
+            &open_item,
+            &export_word_item,
+            &separator,
+            &settings_item,
+            &exit_item,
+        ]
     } else {
         vec![
             &open_item,
             &save_item,
+            &export_word_item,
             &separator,
             &settings_item,
             &exit_item,
@@ -118,6 +134,395 @@ fn build_app_menu<M: Manager<Wry>>(
     };
     let workbook_menu = Submenu::with_items(manager, "Տետր", true, &items)?;
     Menu::with_items(manager, &[&workbook_menu])
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DocxExportMode {
+    Teacher,
+    Student,
+}
+
+impl DocxExportMode {
+    fn parse(mode: &str) -> Result<Self, String> {
+        match mode {
+            "teacher" => Ok(Self::Teacher),
+            "student" => Ok(Self::Student),
+            _ => Err("DOCX արտահանման օգտվողի ռեժիմը սխալ է։".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DocxWorkbook {
+    title: String,
+    #[serde(default)]
+    description: String,
+    assignments: Vec<DocxAssignment>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DocxAssignment {
+    problem: Vec<DocxBlock>,
+    #[serde(default)]
+    solution: Vec<DocxBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+enum DocxBlock {
+    #[serde(rename = "text")]
+    Text { content: String },
+    #[serde(rename = "image")]
+    Image { url: String },
+    #[serde(rename = "squared")]
+    Squared { content: Value },
+}
+
+#[derive(Debug)]
+struct DocxGrid {
+    cells: Vec<Vec<String>>,
+    borders: Vec<(usize, TableCellBorderPosition)>,
+}
+
+#[tauri::command]
+async fn export_workbook_docx(path: String, mode: String, workbook: Value) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mode = DocxExportMode::parse(&mode)?;
+        let workbook: DocxWorkbook = serde_json::from_value(workbook)
+            .map_err(|error| format!("Տետրի տվյալները չեն կարող արտահանվել։ {error}"))?;
+        write_workbook_docx(path, mode, workbook)
+    })
+    .await
+    .map_err(|error| format!("Չհաջողվեց ստեղծել Word փաստաթուղթը։ {error}"))?
+}
+
+fn write_workbook_docx(
+    path: String,
+    mode: DocxExportMode,
+    workbook: DocxWorkbook,
+) -> Result<(), String> {
+    let target_path = docx_path(PathBuf::from(path))?;
+    let document = build_docx_document(mode, &workbook)?;
+    let parent = target_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temporary = NamedTempFile::new_in(parent)
+        .map_err(|error| format!("Չհաջողվեց ստեղծել ժամանակավոր Word ֆայլը։ {error}"))?;
+
+    document
+        .build()
+        .pack(temporary.as_file_mut())
+        .map_err(|error| format!("Չհաջողվեց գեներացնել DOCX փաստաթուղթը։ {error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("Չհաջողվեց պահպանել Word փաստաթուղթը։ {error}"))?;
+    temporary
+        .persist(&target_path)
+        .map_err(|error| format!("Չհաջողվեց պահպանել Word ֆայլը։ {}", error.error))?;
+    Ok(())
+}
+
+fn docx_path(mut path: PathBuf) -> Result<PathBuf, String> {
+    if path.as_os_str().is_empty() {
+        return Err("Պահպանման ուղին դատարկ է։".to_string());
+    }
+
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some(extension) if extension.eq_ignore_ascii_case("docx") => Ok(path),
+        None => {
+            path.set_extension("docx");
+            Ok(path)
+        }
+        Some(_) => Err("Word փաստաթուղթը պետք է պահպանվի .docx ընդլայնմամբ։".to_string()),
+    }
+}
+
+fn build_docx_document(mode: DocxExportMode, workbook: &DocxWorkbook) -> Result<Docx, String> {
+    let mut document = Docx::new()
+        .add_style(
+            Style::new("Heading1", StyleType::Paragraph)
+                .name("Heading 1")
+                .outline_lvl(0)
+                .size(30)
+                .bold(),
+        )
+        .add_style(
+            Style::new("Heading2", StyleType::Paragraph)
+                .name("Heading 2")
+                .outline_lvl(1)
+                .size(26)
+                .bold(),
+        )
+        .add_style(
+            Style::new("Heading3", StyleType::Paragraph)
+                .name("Heading 3")
+                .outline_lvl(2)
+                .size(22)
+                .bold(),
+        )
+        .add_paragraph(
+            Paragraph::new()
+                .style("Title")
+                .add_run(Run::new().add_text(workbook.title.clone())),
+        );
+
+    if mode == DocxExportMode::Teacher && !workbook.description.trim().is_empty() {
+        document = document.add_paragraph(
+            Paragraph::new()
+                .style("Heading1")
+                .add_run(Run::new().add_text("Նկարագրություն")),
+        );
+        document = add_text_paragraphs(document, &workbook.description);
+    }
+
+    for (index, assignment) in workbook.assignments.iter().enumerate() {
+        document = document.add_paragraph(
+            Paragraph::new()
+                .style("Heading1")
+                .add_run(Run::new().add_text(format!("Առաջադրանք {}", index + 1))),
+        );
+        document = document.add_paragraph(
+            Paragraph::new()
+                .style("Heading2")
+                .add_run(Run::new().add_text("Խնդիր")),
+        );
+        document = add_docx_blocks(document, &assignment.problem)?;
+
+        if mode == DocxExportMode::Student {
+            document = document.add_paragraph(
+                Paragraph::new()
+                    .style("Heading2")
+                    .add_run(Run::new().add_text("Լուծում")),
+            );
+            document = add_docx_blocks(document, &assignment.solution)?;
+        }
+    }
+
+    Ok(document)
+}
+
+fn add_text_paragraphs(mut document: Docx, text: &str) -> Docx {
+    for line in text.split('\n') {
+        document = document.add_paragraph(
+            Paragraph::new().add_run(Run::new().add_text(line.trim_end_matches('\r'))),
+        );
+    }
+    document
+}
+
+fn add_docx_blocks(mut document: Docx, blocks: &[DocxBlock]) -> Result<Docx, String> {
+    for block in blocks {
+        match block {
+            DocxBlock::Text { content } => {
+                document = add_text_paragraphs(document, content);
+            }
+            DocxBlock::Image { url } => {
+                let (mime_type, bytes) = decode_image_data_url(url)?;
+                let image = image::load_from_memory(&bytes)
+                    .map_err(|error| format!("Չհաջողվեց բացել նկարը ({mime_type})՝ {error}"))?;
+                let (width, height) = image.dimensions();
+                if width == 0 || height == 0 {
+                    return Err("Նկարի չափերը սխալ են։".to_string());
+                }
+                let mut png = Cursor::new(Vec::new());
+                image
+                    .write_to(&mut png, ImageFormat::Png)
+                    .map_err(|error| format!("Չհաջողվեց փոխարկել նկարը DOCX-ի համար։ {error}"))?;
+                let (width_emu, height_emu) = image_dimensions_emu(width, height);
+                let picture = Pic::new_with_dimensions(png.into_inner(), width, height)
+                    .size(width_emu, height_emu);
+                document =
+                    document.add_paragraph(Paragraph::new().add_run(Run::new().add_image(picture)));
+            }
+            DocxBlock::Squared { content } => {
+                if let Some(grid) = parse_docx_grid(content)? {
+                    document = document.add_table(build_docx_grid_table(grid));
+                }
+            }
+        }
+    }
+    Ok(document)
+}
+
+fn image_dimensions_emu(width: u32, height: u32) -> (u32, u32) {
+    const EMU_PER_INCH: f64 = 914_400.0;
+    const MAX_WIDTH_EMU: f64 = 6.3 * EMU_PER_INCH;
+    const MAX_HEIGHT_EMU: f64 = 8.5 * EMU_PER_INCH;
+    const EMU_PER_PIXEL: f64 = EMU_PER_INCH / 96.0;
+
+    let width_emu = f64::from(width) * EMU_PER_PIXEL;
+    let height_emu = f64::from(height) * EMU_PER_PIXEL;
+    let scale = (MAX_WIDTH_EMU / width_emu)
+        .min(MAX_HEIGHT_EMU / height_emu)
+        .min(1.0);
+    (
+        (width_emu * scale).round().max(1.0) as u32,
+        (height_emu * scale).round().max(1.0) as u32,
+    )
+}
+
+fn parse_docx_grid(content: &Value) -> Result<Option<DocxGrid>, String> {
+    let (cells, border_values) = if let Some(rows) = content.as_array() {
+        let mut cells = Vec::with_capacity(rows.len());
+        for row in rows {
+            let row = row
+                .as_array()
+                .ok_or_else(|| "Վանդակավոր դաշտի տողը սխալ ձևաչափ ունի։".to_string())?;
+            cells.push(
+                row.iter()
+                    .map(|cell| {
+                        let value = cell.as_str().ok_or_else(|| {
+                            "Վանդակավոր դաշտի արժեքը պետք է լինի տեքստ։".to_string()
+                        })?;
+                        Ok(if value == " " {
+                            String::new()
+                        } else {
+                            value.to_string()
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
+            );
+        }
+        let columns = if cells.is_empty() {
+            20
+        } else {
+            cells.iter().map(Vec::len).max().unwrap_or(1).max(1)
+        };
+        if cells.is_empty() {
+            cells = vec![vec![String::new(); columns]; 10];
+        } else {
+            for row in &mut cells {
+                row.resize(columns, String::new());
+            }
+        }
+        (cells, Vec::new())
+    } else {
+        let version = content
+            .get("version")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| "Վանդակավոր դաշտի տարբերակը բացակայում է։".to_string())?;
+        let rows = if version == 1 {
+            20
+        } else {
+            content
+                .get("rows")
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or_else(|| "Վանդակավոր դաշտի տողերի քանակը սխալ է։".to_string())?
+        };
+        let columns = if version == 1 {
+            20
+        } else {
+            content
+                .get("columns")
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .ok_or_else(|| "Վանդակավոր դաշտի սյուների քանակը սխալ է։".to_string())?
+        };
+        if !matches!(version, 1 | 2) || rows == 0 || columns == 0 {
+            return Err("Վանդակավոր դաշտի չափերը չեն աջակցվում։".to_string());
+        }
+        let cell_text = content
+            .get("cells")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Վանդակավոր դաշտի վանդակների տվյալները բացակայում են։".to_string())?;
+        let source_rows: Vec<_> = cell_text.split('\n').collect();
+        if source_rows.len() != rows {
+            return Err("Վանդակավոր դաշտի տողերի քանակը սխալ է։".to_string());
+        }
+        let cells = source_rows
+            .into_iter()
+            .map(|row| {
+                let characters: Vec<_> = row.chars().collect();
+                if characters.len() != columns {
+                    return Err("Վանդակավոր դաշտի սյուների քանակը սխալ է։".to_string());
+                }
+                Ok(characters
+                    .into_iter()
+                    .map(|character| {
+                        if character == ' ' {
+                            String::new()
+                        } else {
+                            character.to_string()
+                        }
+                    })
+                    .collect())
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let borders = content
+            .get("borders")
+            .and_then(Value::as_array)
+            .ok_or_else(|| "Վանդակավոր դաշտի եզրագծերը սխալ ձևաչափ ունեն։".to_string())?;
+        (cells, borders.clone())
+    };
+
+    let rows = cells.len();
+    let columns = cells.first().map_or(0, Vec::len);
+    if rows == 0 || columns == 0 {
+        return Ok(None);
+    }
+    if cells.iter().any(|row| row.len() != columns) {
+        return Err("Վանդակավոր դաշտի տողերի չափերը համահունչ չեն։".to_string());
+    }
+    let cell_count = rows
+        .checked_mul(columns)
+        .ok_or_else(|| "Վանդակավոր դաշտի չափերը չափազանց մեծ են։".to_string())?;
+    let borders = border_values
+        .iter()
+        .map(|border| {
+            let cell = border
+                .get("cell")
+                .and_then(Value::as_u64)
+                .and_then(|value| usize::try_from(value).ok())
+                .filter(|cell| *cell < cell_count)
+                .ok_or_else(|| "Վանդակավոր դաշտի եզրագծի վանդակը սխալ է։".to_string())?;
+            let edge = match border.get("edge").and_then(Value::as_str) {
+                Some("bottom") => TableCellBorderPosition::Bottom,
+                Some("left") => TableCellBorderPosition::Left,
+                _ => return Err("Վանդակավոր դաշտի եզրագծի տեսակը սխալ է։".to_string()),
+            };
+            Ok((cell, edge))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+
+    Ok(Some(DocxGrid { cells, borders }))
+}
+
+fn build_docx_grid_table(grid: DocxGrid) -> Table {
+    let column_count = grid.cells[0].len();
+    let rows = grid
+        .cells
+        .into_iter()
+        .enumerate()
+        .map(|(row_index, row)| {
+            TableRow::new(
+                row.into_iter()
+                    .enumerate()
+                    .map(|(column_index, value)| {
+                        let cell_index = row_index * column_count + column_index;
+                        let mut cell = TableCell::new().add_paragraph(Paragraph::new().add_run(
+                            Run::new().add_text(if value.is_empty() { " " } else { &value }),
+                        ));
+                        for (border_cell, edge) in &grid.borders {
+                            if *border_cell == cell_index {
+                                cell = cell.set_border(
+                                    TableCellBorder::new(edge.clone())
+                                        .border_type(BorderType::Single)
+                                        .size(16)
+                                        .color("000000"),
+                                );
+                            }
+                        }
+                        cell
+                    })
+                    .collect(),
+            )
+        })
+        .collect();
+    let column_width = (9_360 / column_count).max(1);
+    Table::new(rows).set_grid(vec![column_width; column_count])
 }
 
 #[tauri::command]
@@ -474,6 +879,10 @@ pub fn run() {
                 if let Err(error) = app.emit("save-workbook", ()) {
                     eprintln!("Failed to start workbook save: {error}");
                 }
+            } else if event.id() == "export-word" {
+                if let Err(error) = app.emit("export-word", ()) {
+                    eprintln!("Failed to start Word export: {error}");
+                }
             } else if event.id() == "open" {
                 if let Err(error) = app.emit("open-workbook", ()) {
                     eprintln!("Failed to start workbook open: {error}");
@@ -493,6 +902,7 @@ pub fn run() {
             exit_app,
             open_workbook,
             take_pending_workbook_paths,
+            export_workbook_docx,
             save_workbook,
             set_user_mode
         ])
@@ -673,5 +1083,135 @@ mod tests {
                 .unwrap(),
             "PDW"
         );
+    }
+
+    fn docx_document_xml(mode: DocxExportMode, workbook: Value) -> String {
+        let workbook: DocxWorkbook = serde_json::from_value(workbook).unwrap();
+        let mut output = Cursor::new(Vec::new());
+        build_docx_document(mode, &workbook)
+            .unwrap()
+            .build()
+            .pack(&mut output)
+            .unwrap();
+        let mut archive = ZipArchive::new(Cursor::new(output.into_inner())).unwrap();
+        let mut document = String::new();
+        archive
+            .by_name("word/document.xml")
+            .unwrap()
+            .read_to_string(&mut document)
+            .unwrap();
+        document
+    }
+
+    #[test]
+    fn docx_export_filters_content_by_mode_and_preserves_editable_grids() {
+        let workbook = json!({
+            "title": "Տետրի վերնագիր",
+            "description": "Նկարագրություն գաղտնիք",
+            "student": {
+                "name": "Աշակերտի անուն գաղտնիք",
+                "email": "student-secret@example.com"
+            },
+            "verified": { "grade": 19 },
+            "assignments": [{
+                "problem": [
+                    { "type": "text", "content": "Խնդրի պայման" },
+                    {
+                        "type": "squared",
+                        "content": {
+                            "version": 2,
+                            "rows": 1,
+                            "columns": 2,
+                            "cells": "1 ",
+                            "borders": [{ "cell": 0, "edge": "bottom" }]
+                        }
+                    }
+                ],
+                "solution": [
+                    { "type": "text", "content": "Աշակերտի լուծում" },
+                    {
+                        "type": "squared",
+                        "content": [["2", "+", "÷"], ["", "3"]]
+                    }
+                ],
+                "teacher-comment": "Դասատուի մեկնաբանություն գաղտնիք"
+            }]
+        });
+
+        let teacher_document = docx_document_xml(DocxExportMode::Teacher, workbook.clone());
+        assert!(teacher_document.contains("Տետրի վերնագիր"));
+        assert!(teacher_document.contains("Նկարագրություն գաղտնիք"));
+        assert!(teacher_document.contains("Խնդրի պայման"));
+        assert!(teacher_document.contains("<w:tbl>"));
+        assert!(teacher_document.contains("<w:tcBorders>"));
+        assert!(teacher_document.contains("w:sz=\"16\""));
+        assert!(!teacher_document.contains("Աշակերտի լուծում"));
+        assert!(!teacher_document.contains("student-secret@example.com"));
+        assert!(!teacher_document.contains("Դասատուի մեկնաբանություն գաղտնիք"));
+        assert!(!teacher_document.contains(">19<"));
+
+        let student_document = docx_document_xml(DocxExportMode::Student, workbook);
+        assert!(student_document.contains("Տետրի վերնագիր"));
+        assert!(student_document.contains("Խնդրի պայման"));
+        assert!(student_document.contains("Աշակերտի լուծում"));
+        assert!(student_document.contains("<w:tbl>"));
+        assert!(!student_document.contains("Նկարագրություն գաղտնիք"));
+        assert!(!student_document.contains("Աշակերտի անուն գաղտնիք"));
+        assert!(!student_document.contains("student-secret@example.com"));
+        assert!(!student_document.contains("Դասատուի մեկնաբանություն գաղտնիք"));
+        assert!(!student_document.contains(">19<"));
+    }
+
+    #[test]
+    fn docx_export_embeds_images_and_rejects_invalid_image_data() {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 0, 0, 255]));
+        let mut png = Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut png, ImageFormat::Png)
+            .unwrap();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            STANDARD.encode(png.into_inner())
+        );
+        let workbook: DocxWorkbook = serde_json::from_value(json!({
+            "title": "Նկարով տետր",
+            "assignments": [{
+                "problem": [{ "type": "image", "url": data_url }]
+            }]
+        }))
+        .unwrap();
+
+        let mut output = Cursor::new(Vec::new());
+        build_docx_document(DocxExportMode::Teacher, &workbook)
+            .unwrap()
+            .build()
+            .pack(&mut output)
+            .unwrap();
+        let archive = ZipArchive::new(Cursor::new(output.into_inner())).unwrap();
+        assert!(archive.file_names().any(|name| {
+            name.is_ok_and(|name| name.starts_with("word/media/") && name.ends_with(".png"))
+        }));
+
+        let invalid_image: DocxBlock = serde_json::from_value(json!({
+            "type": "image",
+            "url": "data:image/png;base64,SGVsbG8="
+        }))
+        .unwrap();
+        assert!(add_docx_blocks(Docx::new(), &[invalid_image]).is_err());
+    }
+
+    #[test]
+    fn docx_export_paths_require_the_docx_extension() {
+        let path = PathBuf::from("lesson");
+        assert_eq!(docx_path(path).unwrap().extension().unwrap(), "docx");
+        assert!(docx_path(PathBuf::from("lesson.pdf")).is_err());
+        assert_eq!(
+            docx_path(PathBuf::from("lesson.DOCX"))
+                .unwrap()
+                .extension()
+                .unwrap(),
+            "DOCX"
+        );
+        assert!(DocxExportMode::parse("unknown").is_err());
     }
 }

@@ -286,6 +286,54 @@ async function listenForSaveMenu() {
   }
 }
 
+async function exportWordDocument() {
+  if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
+    showStatus("Արտահանելու համար նախ բացիր ուսուցչի տետրը։", "error");
+    return;
+  }
+  if (!form.reportValidity()) return;
+
+  try {
+    const documentData = createDocument();
+    const safeName = documentData.title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-") || "workbook";
+    const path = await window.__TAURI__.dialog.save({
+      title: "Արտահանել Word փաստաթուղթ",
+      defaultPath: `${safeName}${userMode === USER_MODES.STUDENT ? "-response" : ""}.docx`,
+      filters: [{ name: "Word փաստաթուղթ", extensions: ["docx"] }]
+    });
+    if (!path) return;
+
+    const workbook = {
+      title: documentData.title,
+      ...(userMode === USER_MODES.TEACHER
+        ? { description: documentData.description }
+        : {}),
+      assignments: documentData.assignments.map(assignment => ({
+        problem: assignment.problem,
+        ...(userMode === USER_MODES.STUDENT
+          ? { solution: assignment.solution }
+          : {})
+      }))
+    };
+    await window.__TAURI__.core.invoke("export_workbook_docx", {
+      path,
+      mode: userMode,
+      workbook
+    });
+    showStatus("Word փաստաթուղթը պահպանվեց։", "success");
+  } catch (error) {
+    showStatus(`Չհաջողվեց արտահանել Word փաստաթուղթը։ ${error.message}`, "error");
+  }
+}
+
+async function listenForWordExportMenu() {
+  try {
+    await window.__TAURI__.event.listen("export-word", exportWordDocument);
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել Word արտահանման մենյուն։ ${error.message}`, "error");
+  }
+}
+
 async function openWorkbookFromPath(path) {
   if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
   const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
@@ -844,6 +892,7 @@ syncNativeMenuMode();
 listenForCreateMenu();
 listenForSettingsMenu();
 listenForSaveMenu();
+listenForWordExportMenu();
 listenForOpenMenu();
 listenForPendingWorkbookFiles();
 listenForExitMenu();
