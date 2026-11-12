@@ -219,6 +219,37 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.verification-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.verification-section h3 {
+  margin: 0;
+}
+
+.verification-section .field {
+  max-width: 220px;
+}
+
+.teacher-comment {
+  padding: 14px;
+  border: 1px solid #e3e8f0;
+  border-radius: 10px;
+  background: white;
+}
+
+.teacher-comment textarea:read-only,
+.verification-section input:disabled {
+  color: var(--muted);
+  background: #f3f6fb;
+}
+
 .content-section {
   min-width: 0;
   padding: 14px;

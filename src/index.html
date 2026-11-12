@@ -21,6 +21,13 @@
         <button class="button button-primary add-assignment-button" id="add-assignment" type="button" aria-label="Ավելացնել առաջադրանք" title="Ավելացնել առաջադրանք">+</button>
       </div>
       <div class="assignment-list" id="assignment-list"></div>
+      <section class="verification-section" id="verification-section" hidden>
+        <h3>Ամբողջ աշխատանքի գնահատական</h3>
+        <div class="field">
+          <label for="workbook-grade">Գնահատական (1-20)</label>
+          <input id="workbook-grade" name="grade" type="number" min="1" max="20" step="1">
+        </div>
+      </section>
       <p class="status" id="status" aria-live="polite"></p>
     </form>
   </main>
@@ -37,11 +44,11 @@
       </div>
       <div class="settings-profile-fields" id="settings-profile-fields">
         <div class="field">
-          <label id="profile-name-label" for="profile-name">Հեղինակի անուն</label>
+          <label id="profile-name-label" for="profile-name">Դասատուի անուն</label>
           <input id="profile-name" name="profile-name" type="text" autocomplete="name" required>
         </div>
         <div class="field">
-          <label id="profile-email-label" for="profile-email">Հեղինակի էլ․ փոստ</label>
+          <label id="profile-email-label" for="profile-email">Դասատուի էլ․ փոստ</label>
           <input id="profile-email" name="profile-email" type="email" autocomplete="email" required>
         </div>
       </div>

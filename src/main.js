@@ -3,6 +3,8 @@ import "./components/math-grid/math-grid.js";
 const form = document.querySelector("#workbook-form");
 const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
+const verificationSection = document.querySelector("#verification-section");
+const workbookGradeInput = document.querySelector("#workbook-grade");
 const settingsDialog = document.querySelector("#settings-dialog");
 const modeSelect = document.querySelector("#user-mode");
 const profileNameLabel = document.querySelector("#profile-name-label");
@@ -16,7 +18,7 @@ const USER_MODES = Object.freeze({
   STUDENT: "student"
 });
 const USER_MODE_STORAGE_KEY = "pensum-user-mode";
-const AUTHOR_DETAILS_STORAGE_KEY = "pensum-author-details";
+const TEACHER_DETAILS_STORAGE_KEY = "pensum-author-details";
 const STUDENT_DETAILS_STORAGE_KEY = "pensum-student-details";
 
 function showStatus(message, type = "") {
@@ -55,12 +57,13 @@ function loadProfileDetails(storageKey, profileName) {
 }
 
 let userMode = loadUserMode();
-let authorDetails = loadProfileDetails(AUTHOR_DETAILS_STORAGE_KEY, "հեղինակի");
+let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
 let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "աշակերտի");
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
-let workbookAuthor = null;
+let workbookTeacher = null;
+let workbookStudent = null;
 const assignmentSolutions = new WeakMap();
 
 function applyUserMode(assignments = collectAssignments()) {
@@ -72,14 +75,21 @@ function applyUserMode(assignments = collectAssignments()) {
   modeSelect.value = userMode;
   assignmentList.replaceChildren();
   assignments.forEach(createAssignment);
+  updateReviewControls();
   updateSettingsProfileFields();
+}
+
+function updateReviewControls() {
+  const canEditReview = workbookSolved && userMode === USER_MODES.TEACHER;
+  verificationSection.hidden = !workbookSolved;
+  workbookGradeInput.disabled = !canEditReview;
 }
 
 function updateSettingsProfileFields() {
   const isTeacher = modeSelect.value === USER_MODES.TEACHER;
-  const details = isTeacher ? authorDetails : studentDetails;
-  profileNameLabel.textContent = isTeacher ? "Հեղինակի անուն" : "Աշակերտի անուն";
-  profileEmailLabel.textContent = isTeacher ? "Հեղինակի էլ․ փոստ" : "Աշակերտի էլ․ փոստ";
+  const details = isTeacher ? teacherDetails : studentDetails;
+  profileNameLabel.textContent = isTeacher ? "Դասատուի անուն" : "Աշակերտի անուն";
+  profileEmailLabel.textContent = isTeacher ? "Դասատուի էլ․ փոստ" : "Աշակերտի էլ․ փոստ";
   profileNameInput.value = details.name;
   profileEmailInput.value = details.email;
 }
@@ -116,7 +126,7 @@ settingsDialog.addEventListener("close", async () => {
   if (!updatedDetails.name || !updatedDetails.email || !profileEmailInput.checkValidity()) {
     showStatus(
       isTeacher
-        ? "Լրացրու հեղինակի անունն ու վավեր էլ․ փոստը։"
+        ? "Լրացրու դասատուի անունն ու վավեր էլ․ փոստը։"
         : "Լրացրու աշակերտի անունն ու վավեր էլ․ փոստը։",
       "error"
     );
@@ -125,7 +135,7 @@ settingsDialog.addEventListener("close", async () => {
 
   try {
     localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
-    const detailsStorageKey = isTeacher ? AUTHOR_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
+    const detailsStorageKey = isTeacher ? TEACHER_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
     localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: selectedMode,
@@ -134,7 +144,7 @@ settingsDialog.addEventListener("close", async () => {
     const assignments = collectAssignments();
     userMode = selectedMode;
     if (isTeacher) {
-      authorDetails = updatedDetails;
+      teacherDetails = updatedDetails;
     } else {
       studentDetails = updatedDetails;
     }
@@ -182,8 +192,11 @@ async function createWorkbook() {
     assignmentList.replaceChildren();
     hasLoadedWorkbook = false;
     workbookSolved = false;
-    workbookAuthor = null;
+    workbookTeacher = null;
+    workbookStudent = null;
+    workbookGradeInput.value = "";
     hasUnsavedChanges = false;
+    updateReviewControls();
     await syncNativeMenuMode();
     showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
   } catch (error) {
@@ -200,25 +213,33 @@ async function listenForCreateMenu() {
 }
 
 async function saveWorkbook() {
-  if (userMode === USER_MODES.TEACHER && workbookSolved) {
-    showStatus("Աշակերտի լուծած տետրը միայն դիտման համար է։", "error");
-    return;
-  }
   if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
     showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
     return;
   }
   if (!form.reportValidity()) return;
   if (userMode === USER_MODES.TEACHER) {
-    if (!authorDetails.name.trim() || !authorDetails.email.trim()) {
-      showStatus("Կարգավորումներում լրացրու հեղինակի անունն ու էլ․ փոստը։", "error");
+    if (!teacherDetails.name.trim() || !teacherDetails.email.trim()) {
+      showStatus("Կարգավորումներում լրացրու դասատուի անունն ու էլ․ փոստը։", "error");
       return;
     }
     const emailValidator = document.createElement("input");
     emailValidator.type = "email";
-    emailValidator.value = authorDetails.email;
+    emailValidator.value = teacherDetails.email;
     if (!emailValidator.checkValidity()) {
-      showStatus("Կարգավորումներում լրացրու վավեր էլ․ փոստ։", "error");
+      showStatus("Կարգավորումներում լրացրու դասատուի վավեր էլ․ փոստը։", "error");
+      return;
+    }
+  } else {
+    if (!studentDetails.name.trim() || !studentDetails.email.trim()) {
+      showStatus("Կարգավորումներում լրացրու աշակերտի անունն ու էլ․ փոստը։", "error");
+      return;
+    }
+    const emailValidator = document.createElement("input");
+    emailValidator.type = "email";
+    emailValidator.value = studentDetails.email;
+    if (!emailValidator.checkValidity()) {
+      showStatus("Կարգավորումներում լրացրու աշակերտի վավեր էլ․ փոստը։", "error");
       return;
     }
   }
@@ -538,10 +559,26 @@ function createAssignment(savedAssignment = { problem: [] }) {
   sections.append(
     createContentSection("problem", "Խնդիր", savedAssignment.problem, canEditTeacherContent),
   );
-  if (!isTeacher || savedSolution.length > 0) {
+  if (!isTeacher || savedSolution.length > 0 || workbookSolved) {
     sections.append(
       createContentSection("solution", "Լուծում", savedSolution, !isTeacher)
     );
+  }
+  if (workbookSolved) {
+    const commentField = document.createElement("div");
+    commentField.className = "teacher-comment field";
+    const commentLabel = document.createElement("label");
+    commentLabel.textContent = "Դասատուի մեկնաբանություն";
+    const commentInput = document.createElement("textarea");
+    commentInput.setAttribute(
+      "aria-label",
+      `Առաջադրանք ${assignmentList.children.length + 1}-ի դասատուի մեկնաբանություն`
+    );
+    commentInput.value = savedAssignment["teacher-comment"] ?? "";
+    commentInput.readOnly = !isTeacher;
+    commentLabel.append(commentInput);
+    commentField.append(commentLabel);
+    sections.append(commentField);
   }
   card.append(heading, sections);
   assignmentList.append(card);
@@ -571,22 +608,33 @@ function collectAssignments() {
   return [...assignmentList.querySelectorAll(".assignment-card")].map(card => {
     const problemSection = card.querySelector('[data-section="problem"]');
     const solutionSection = card.querySelector('[data-section="solution"]');
+    const teacherComment = card.querySelector(".teacher-comment textarea");
     return {
       problem: collectBlocks(problemSection),
       solution: solutionSection
         ? collectBlocks(solutionSection)
-        : assignmentSolutions.get(card) ?? []
+        : assignmentSolutions.get(card) ?? [],
+      ...(teacherComment
+        ? { "teacher-comment": teacherComment.value }
+        : {})
     };
   });
 }
 
 function createDocument() {
+  const grade = workbookGradeInput.value;
   return {
     title: form.elements.title.value,
-    author: userMode === USER_MODES.STUDENT ? workbookAuthor : { ...authorDetails },
+    teacher: userMode === USER_MODES.STUDENT ? workbookTeacher : { ...teacherDetails },
+    ...(userMode === USER_MODES.STUDENT
+      ? { student: { ...studentDetails } }
+      : workbookStudent
+        ? { student: { ...workbookStudent } }
+        : {}),
     "created-at": getLocalDateString(),
     solved: userMode === USER_MODES.STUDENT || workbookSolved,
-    assignments: collectAssignments()
+    assignments: collectAssignments(),
+    ...(grade === "" ? {} : { verified: { grade: Number(grade) } })
   };
 }
 
@@ -600,15 +648,26 @@ function validateWorkbookDocument(documentData) {
   if (
     typeof documentData.title !== "string" ||
     !(
-      typeof documentData.author === "string" ||
-      (
-        documentData.author &&
-        typeof documentData.author === "object" &&
-        typeof documentData.author.name === "string" &&
-        typeof documentData.author.email === "string"
-      )
+      documentData.teacher &&
+      typeof documentData.teacher === "object" &&
+      typeof documentData.teacher.name === "string" &&
+      typeof documentData.teacher.email === "string"
     ) ||
+    (documentData.student !== undefined && (
+      !documentData.student ||
+      typeof documentData.student !== "object" ||
+      typeof documentData.student.name !== "string" ||
+      typeof documentData.student.email !== "string"
+    )) ||
     (documentData.solved !== undefined && typeof documentData.solved !== "boolean") ||
+    (documentData.verified !== undefined && (
+      !documentData.verified ||
+      typeof documentData.verified !== "object" ||
+      Array.isArray(documentData.verified) ||
+      !Number.isInteger(documentData.verified.grade) ||
+      documentData.verified.grade < 1 ||
+      documentData.verified.grade > 20
+    )) ||
     typeof documentData["created-at"] !== "string"
   ) {
     throw new Error("Տետրի հիմնական տվյալները սխալ ձևաչափ ունեն։");
@@ -621,7 +680,9 @@ function validateWorkbookDocument(documentData) {
       !assignment ||
       typeof assignment !== "object" ||
       !Array.isArray(assignment.problem) ||
-      (assignment.solution !== undefined && !Array.isArray(assignment.solution))
+      (assignment.solution !== undefined && !Array.isArray(assignment.solution)) ||
+      (assignment["teacher-comment"] !== undefined &&
+        typeof assignment["teacher-comment"] !== "string")
     ) {
       throw new Error("Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։");
     }
@@ -642,16 +703,21 @@ function validateWorkbookDocument(documentData) {
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
   form.elements.title.value = documentData.title;
-  workbookAuthor = documentData.author;
+  workbookTeacher = documentData.teacher;
+  workbookStudent = documentData.student ?? null;
   hasLoadedWorkbook = true;
   workbookSolved = documentData.solved === true;
+  workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
   assignmentList.replaceChildren();
   documentData.assignments.forEach(createAssignment);
+  updateReviewControls();
   hasUnsavedChanges = false;
   showStatus(
     workbookSolved && userMode === USER_MODES.TEACHER
-      ? "Աշակերտի լուծած տետրը բացվեց միայն դիտման համար։"
-      : "Կիսատ տետրը բացվեց։ Կարող ես շարունակել խմբագրումը։",
+      ? "Լուծված տետրը բացվեց․ պայմաններն ու լուծումները read-only են, կարող ես ավելացնել մեկնաբանություններ և գնահատական։"
+      : workbookSolved
+        ? "Գրախոսված տետրը բացվեց․ գնահատականն ու մեկնաբանությունները դիտման համար են։"
+        : "Կիսատ տետրը բացվեց։ Կարող ես շարունակել խմբագրումը։",
     "success"
   );
 }

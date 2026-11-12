@@ -52,6 +52,7 @@ fn build_app_menu<M: Manager<Wry>>(
         vec![
             &create_item,
             &open_item,
+            &save_item,
             &send_item,
             &separator,
             &settings_item,
@@ -420,7 +421,7 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
-            "author": {
+            "teacher": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
             },
@@ -443,6 +444,8 @@ mod tests {
         };
         assert_eq!(document["formatVersion"], 1);
         assert_eq!(document["solved"], false);
+        assert_eq!(document["teacher"]["name"], "Ուսուցիչ");
+        assert!(document.get("author").is_none());
         assert_eq!(document["assignments"][0]["solution"], json!([]));
         assert_eq!(
             document["assignments"][0]["problem"][0]["url"],
@@ -468,7 +471,7 @@ mod tests {
         let workbook = json!({
             "title": "Դաս",
             "solved": true,
-            "author": {
+            "teacher": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
             },
@@ -498,13 +501,21 @@ mod tests {
         let workbook = json!({
             "title": "Դաս",
             "solved": true,
-            "author": {
+            "teacher": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
+            },
+            "student": {
+                "name": "Աշակերտ",
+                "email": "student@example.com"
+            },
+            "verified": {
+                "grade": 18
             },
             "created-at": "2026-11-11",
             "assignments": [{
                 "problem": [],
+                "teacher-comment": "Լավ աշխատանք։",
                 "solution": [{
                     "type": "image",
                     "url": "data:image/png;base64,SGVsbG8="
@@ -519,6 +530,10 @@ mod tests {
             opened["assignments"][0]["solution"][0]["url"],
             "data:image/png;base64,SGVsbG8="
         );
+        assert_eq!(opened["teacher"]["name"], "Ուսուցիչ");
+        assert_eq!(opened["student"]["name"], "Աշակերտ");
+        assert_eq!(opened["verified"]["grade"], 18);
+        assert_eq!(opened["assignments"][0]["teacher-comment"], "Լավ աշխատանք։");
         assert_eq!(opened["solved"], true);
     }
 

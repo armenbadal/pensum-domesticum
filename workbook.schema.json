@@ -58,6 +58,19 @@
         "required": ["cell", "edge"]
       }
     },
+    "person": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        }
+      },
+      "required": ["name", "email"]
+    },
     "content-block": {
       "type": "object",
       "oneOf": [
@@ -125,18 +138,22 @@
     "title": {
       "type": "string"
     },
-    "author": {
+    "teacher": {
+      "$ref": "#/$defs/person"
+    },
+    "student": {
+      "$ref": "#/$defs/person"
+    },
+    "verified": {
       "type": "object",
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "email": {
-          "type": "string",
-          "format": "email"
+        "grade": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
         }
       },
-      "required": ["name", "email"]
+      "required": ["grade"]
     },
     "created-at": {
       "type": "string",
@@ -152,11 +169,14 @@
           },
           "solution": {
             "$ref": "#/$defs/content-blocks"
+          },
+          "teacher-comment": {
+            "type": "string"
           }
         },
         "required": ["problem", "solution"]
       }
     }
   },
-  "required": ["title", "author", "created-at"]
+  "required": ["title", "teacher", "created-at"]
 }
