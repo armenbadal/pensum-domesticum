@@ -138,6 +138,10 @@
     "title": {
       "type": "string"
     },
+    "description": {
+      "type": "string",
+      "description": "Բացատրություններ, պահանջներ կամ տեսական նյութ"
+    },
     "teacher": {
       "$ref": "#/$defs/person"
     },

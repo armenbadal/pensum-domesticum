@@ -11,18 +11,23 @@
     <form class="editor" id="workbook-form">
       <div class="metadata">
         <div class="field field-full">
-          <label for="workbook-title">Վերնագիր</label>
+          <label class="workbook-title-label" for="workbook-title">Թեմա</label>
           <input id="workbook-title" name="title" type="text" required>
+        </div>
+        <div class="field field-full">
+          <label for="workbook-description">Նկարագրություն</label>
+          <textarea id="workbook-description" name="description" rows="4" placeholder="Բացատրություններ, պահանջներ կամ տեսական նյութ"></textarea>
         </div>
       </div>
 
       <div class="assignments-heading">
         <h3>Առաջադրանքներ</h3>
+      </div>
+      <div class="assignment-list" id="assignment-list">
         <button class="button button-secondary assignment-action-button add-assignment-button" id="add-assignment" type="button" aria-label="Ավելացնել առաջադրանք" title="Ավելացնել առաջադրանք">
           <img src="./assets/icons/square-plus.svg" alt="" draggable="false">
         </button>
       </div>
-      <div class="assignment-list" id="assignment-list"></div>
       <section class="verification-section" id="verification-section" hidden>
         <label for="workbook-grade">Գնահատական (1-20)</label>
         <input id="workbook-grade" name="grade" type="number" min="1" max="20" step="1">

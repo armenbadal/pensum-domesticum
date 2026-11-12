@@ -3,6 +3,7 @@ import "./components/math-grid/math-grid.js";
 const form = document.querySelector("#workbook-form");
 const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
+const workbookDescriptionInput = document.querySelector("#workbook-description");
 const verificationSection = document.querySelector("#verification-section");
 const workbookGradeInput = document.querySelector("#workbook-grade");
 const settingsDialog = document.querySelector("#settings-dialog");
@@ -71,9 +72,10 @@ function applyUserMode(assignments = collectAssignments()) {
   const canEditTeacherContent = isTeacher && !workbookSolved;
   form.hidden = false;
   form.elements.title.readOnly = !canEditTeacherContent;
+  workbookDescriptionInput.readOnly = !canEditTeacherContent;
   addAssignmentButton.hidden = !canEditTeacherContent;
   modeSelect.value = userMode;
-  assignmentList.replaceChildren();
+  assignmentList.replaceChildren(addAssignmentButton);
   assignments.forEach(createAssignment);
   updateReviewControls();
   updateSettingsProfileFields();
@@ -189,7 +191,8 @@ async function createWorkbook() {
     if (!(await confirmDiscardChanges("Ստեղծե՞լ նոր դատարկ տետր։"))) return;
 
     form.elements.title.value = "";
-    assignmentList.replaceChildren();
+    workbookDescriptionInput.value = "";
+    assignmentList.replaceChildren(addAssignmentButton);
     hasLoadedWorkbook = false;
     workbookSolved = false;
     workbookTeacher = null;
@@ -624,7 +627,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
     );
   }
   if (workbookSolved) {
-    const assignmentNumber = assignmentList.children.length + 1;
+    const assignmentNumber = assignmentList.querySelectorAll(".assignment-card").length + 1;
     const savedComment = savedAssignment["teacher-comment"] ?? "";
     if (savedComment.trim()) {
       const commentField = createTeacherComment(
@@ -642,7 +645,7 @@ function createAssignment(savedAssignment = { problem: [] }) {
     }
   }
   card.append(heading, sections);
-  assignmentList.append(card);
+  assignmentList.insertBefore(card, addAssignmentButton);
   updateAssignmentNumbers();
 }
 
@@ -686,6 +689,7 @@ function createDocument() {
   const grade = workbookGradeInput.value;
   return {
     title: form.elements.title.value,
+    description: workbookDescriptionInput.value,
     teacher: userMode === USER_MODES.STUDENT ? workbookTeacher : { ...teacherDetails },
     ...(userMode === USER_MODES.STUDENT
       ? { student: { ...studentDetails } }
@@ -708,6 +712,7 @@ function validateWorkbookDocument(documentData) {
   }
   if (
     typeof documentData.title !== "string" ||
+    (documentData.description !== undefined && typeof documentData.description !== "string") ||
     !(
       documentData.teacher &&
       typeof documentData.teacher === "object" &&
@@ -764,12 +769,13 @@ function validateWorkbookDocument(documentData) {
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
   form.elements.title.value = documentData.title;
+  workbookDescriptionInput.value = documentData.description ?? "";
   workbookTeacher = documentData.teacher;
   workbookStudent = documentData.student ?? null;
   hasLoadedWorkbook = true;
   workbookSolved = documentData.solved === true;
   workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
-  assignmentList.replaceChildren();
+  assignmentList.replaceChildren(addAssignmentButton);
   documentData.assignments.forEach(createAssignment);
   updateReviewControls();
   hasUnsavedChanges = false;

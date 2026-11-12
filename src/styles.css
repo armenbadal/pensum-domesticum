@@ -149,6 +149,10 @@ label,
   font-weight: 650;
 }
 
+.workbook-title-label {
+  font-size: 1.05rem;
+}
+
 input,
 textarea,
 select {
@@ -368,7 +372,7 @@ textarea {
 
 .content-block-squared-remove {
   position: static;
-  flex: 0 0 28px;
+  flex: 0 0 24px;
 }
 
 .content-block-image {
@@ -441,6 +445,7 @@ textarea {
 }
 
 .add-assignment-button {
+  justify-self: center;
   color: var(--blue);
 }
 
@@ -477,18 +482,18 @@ textarea {
 }
 
 .remove-block-button {
-  width: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  height: 28px;
-  padding: 4px;
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  height: 24px;
+  padding: 3px;
   border-radius: 4px;
   line-height: 1;
 }
 
 .remove-block-button img {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .button:disabled {
