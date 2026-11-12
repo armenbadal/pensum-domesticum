@@ -330,6 +330,14 @@ function makeButton(text, className, onClick, type = "button") {
   return button;
 }
 
+function addButtonIcon(button, iconName) {
+  const icon = document.createElement("img");
+  icon.src = new URL(`./assets/icons/${iconName}.svg`, import.meta.url).href;
+  icon.alt = "";
+  icon.draggable = false;
+  button.append(icon);
+}
+
 function updateAssignmentNumbers() {
   assignmentList.querySelectorAll(".assignment-card").forEach((card, index) => {
     card.querySelector(".assignment-number").textContent = `Առաջադրանք ${index + 1}`;
@@ -407,10 +415,11 @@ function createContentBlock(type, index, imageUrl, initialContent = "", editable
   block.className = "content-block";
   block.dataset.type = type;
 
-  const removeButton = makeButton("×", "button button-danger remove-block-button", () => {
+  const removeButton = makeButton("", "button button-danger remove-block-button", () => {
     block.remove();
     clearOutput();
   });
+  addButtonIcon(removeButton, "x");
   removeButton.hidden = !editable;
   removeButton.setAttribute("aria-label", "Հեռացնել բլոկը");
   removeButton.title = "Հեռացնել";
@@ -544,7 +553,8 @@ function createTeacherComment(value, readOnly, assignmentNumber, onRemove) {
   textarea.readOnly = readOnly;
   heading.append(label);
   if (!readOnly) {
-    const removeButton = makeButton("×", "button button-danger remove-block-button", onRemove);
+    const removeButton = makeButton("", "button button-danger remove-block-button", onRemove);
+    addButtonIcon(removeButton, "x");
     removeButton.setAttribute("aria-label", "Հեռացնել մեկնաբանությունը");
     removeButton.title = "Հեռացնել մեկնաբանությունը";
     heading.append(removeButton);
@@ -589,10 +599,11 @@ function createAssignment(savedAssignment = { problem: [] }) {
   heading.className = "assignment-heading";
   const title = document.createElement("h4");
   title.className = "assignment-number";
-  const removeButton = makeButton("×", "button button-danger remove-block-button", () => {
+  const removeButton = makeButton("", "button button-danger assignment-action-button remove-block-button", () => {
     card.remove();
     updateAssignmentNumbers();
   });
+  addButtonIcon(removeButton, "x");
   removeButton.hidden = !canEditTeacherContent;
   removeButton.setAttribute("aria-label", "Հեռացնել առաջադրանքը");
   removeButton.title = "Հեռացնել առաջադրանքը";

@@ -276,13 +276,11 @@ textarea {
 
 .content-section {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid #e3e8f0;
-  border-radius: 10px;
-  background: white;
+  padding: 0;
 }
 
 .section-heading {
+  justify-content: center;
   flex-wrap: wrap;
   margin-bottom: 12px;
 }
@@ -362,7 +360,7 @@ textarea {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  justify-self: start;
+  justify-self: center;
   width: fit-content;
   max-width: 100%;
   padding: 8px;
@@ -376,16 +374,20 @@ textarea {
 .content-block-image {
   display: flex;
   align-items: flex-start;
+  justify-self: center;
+  width: fit-content;
+  max-width: 100%;
   gap: 8px;
 }
 
 .content-block-image-preview {
-  flex: 1;
-  width: 100%;
+  flex: 0 1 auto;
+  width: auto;
+  max-width: 100%;
   max-height: 280px;
   border-radius: 6px;
   object-fit: contain;
-  object-position: left top;
+  object-position: center;
 }
 
 .block-heading {
@@ -424,13 +426,27 @@ textarea {
   background: var(--blue-dark);
 }
 
+.assignment-action-button {
+  width: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.assignment-action-button img {
+  width: 18px;
+  height: 18px;
+}
+
 .add-assignment-button {
-  width: 40px;
-  min-height: 40px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 1.35rem;
-  line-height: 1;
+  color: var(--blue);
+}
+
+.add-assignment-button:hover {
+  border-color: var(--blue);
+  background: #f1f5ff;
 }
 
 .button-secondary {
@@ -462,11 +478,17 @@ textarea {
 
 .remove-block-button {
   width: 28px;
+  min-width: 28px;
   min-height: 28px;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 1rem;
+  height: 28px;
+  padding: 4px;
+  border-radius: 4px;
   line-height: 1;
+}
+
+.remove-block-button img {
+  width: 18px;
+  height: 18px;
 }
 
 .button:disabled {
