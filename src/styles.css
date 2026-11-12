@@ -220,7 +220,8 @@ textarea {
 }
 
 .verification-section {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 12px;
   margin-top: 20px;
   padding: 18px;
@@ -229,12 +230,11 @@ textarea {
   background: #fbfcfe;
 }
 
-.verification-section h3 {
-  margin: 0;
-}
-
-.verification-section .field {
-  max-width: 220px;
+.verification-section input {
+  width: 72px;
+  min-width: 72px;
+  padding: 8px;
+  text-align: center;
 }
 
 .teacher-comment {
@@ -244,10 +244,34 @@ textarea {
   background: white;
 }
 
+.teacher-comment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.button.add-comment-button {
+  width: 28px;
+  min-height: 28px;
+  height: 28px;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.add-comment-button img {
+  width: 18px;
+  height: 18px;
+}
+
 .teacher-comment textarea:read-only,
 .verification-section input:disabled {
   color: var(--muted);
   background: #f3f6fb;
+}
+
+.teacher-comment textarea {
+  font-weight: 400;
 }
 
 .content-section {
@@ -465,7 +489,7 @@ textarea {
   background: white;
   box-shadow: 0 -4px 12px rgb(34 54 93 / 6%);
   color: var(--muted);
-  font-size: .9rem;
+  font-size: .7rem;
   line-height: 1.5;
 }
 

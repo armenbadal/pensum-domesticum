@@ -529,6 +529,54 @@ function createContentSection(name, title, initialBlocks = [], editable = true) 
   return section;
 }
 
+function createTeacherComment(value, readOnly, assignmentNumber, onRemove) {
+  const field = document.createElement("div");
+  field.className = "teacher-comment field";
+  const heading = document.createElement("div");
+  heading.className = "teacher-comment-heading";
+  const label = document.createElement("label");
+  label.htmlFor = `teacher-comment-${assignmentNumber}`;
+  label.textContent = "Մեկնաբանություն";
+  const textarea = document.createElement("textarea");
+  textarea.id = label.htmlFor;
+  textarea.setAttribute("aria-label", `Առաջադրանք ${assignmentNumber}-ի մեկնաբանություն`);
+  textarea.value = value;
+  textarea.readOnly = readOnly;
+  heading.append(label);
+  if (!readOnly) {
+    const removeButton = makeButton("×", "button button-danger remove-block-button", onRemove);
+    removeButton.setAttribute("aria-label", "Հեռացնել մեկնաբանությունը");
+    removeButton.title = "Հեռացնել մեկնաբանությունը";
+    heading.append(removeButton);
+  }
+  field.append(heading, textarea);
+  return field;
+}
+
+function createAddCommentButton(assignmentNumber, sections) {
+  const button = makeButton("", "button button-secondary add-comment-button");
+  const icon = document.createElement("img");
+  icon.src = new URL("./assets/icons/message-square-plus.svg", import.meta.url).href;
+  icon.alt = "";
+  icon.draggable = false;
+  button.append(icon);
+  button.setAttribute(
+    "aria-label",
+    `Ավելացնել մեկնաբանություն առաջադրանք ${assignmentNumber}-ին`
+  );
+  button.title = "Մեկնաբանություն";
+  button.addEventListener("click", () => {
+    const commentField = createTeacherComment("", false, assignmentNumber, () => {
+      commentField.replaceWith(createAddCommentButton(assignmentNumber, sections));
+      clearOutput();
+    });
+    button.replaceWith(commentField);
+    commentField.querySelector("textarea").focus();
+    clearOutput();
+  });
+  return button;
+}
+
 function createAssignment(savedAssignment = { problem: [] }) {
   const card = document.createElement("article");
   card.className = "assignment-card";
@@ -565,20 +613,22 @@ function createAssignment(savedAssignment = { problem: [] }) {
     );
   }
   if (workbookSolved) {
-    const commentField = document.createElement("div");
-    commentField.className = "teacher-comment field";
-    const commentLabel = document.createElement("label");
-    commentLabel.textContent = "Դասատուի մեկնաբանություն";
-    const commentInput = document.createElement("textarea");
-    commentInput.setAttribute(
-      "aria-label",
-      `Առաջադրանք ${assignmentList.children.length + 1}-ի դասատուի մեկնաբանություն`
-    );
-    commentInput.value = savedAssignment["teacher-comment"] ?? "";
-    commentInput.readOnly = !isTeacher;
-    commentLabel.append(commentInput);
-    commentField.append(commentLabel);
-    sections.append(commentField);
+    const assignmentNumber = assignmentList.children.length + 1;
+    const savedComment = savedAssignment["teacher-comment"] ?? "";
+    if (savedComment.trim()) {
+      const commentField = createTeacherComment(
+        savedComment,
+        !isTeacher,
+        assignmentNumber,
+        () => {
+          commentField.replaceWith(createAddCommentButton(assignmentNumber, sections));
+          clearOutput();
+        }
+      );
+      sections.append(commentField);
+    } else if (isTeacher) {
+      sections.append(createAddCommentButton(assignmentNumber, sections));
+    }
   }
   card.append(heading, sections);
   assignmentList.append(card);
@@ -614,7 +664,7 @@ function collectAssignments() {
       solution: solutionSection
         ? collectBlocks(solutionSection)
         : assignmentSolutions.get(card) ?? [],
-      ...(teacherComment
+      ...(teacherComment?.value.trim()
         ? { "teacher-comment": teacherComment.value }
         : {})
     };
