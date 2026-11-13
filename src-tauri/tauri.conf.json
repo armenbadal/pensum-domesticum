@@ -45,7 +45,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: 12E041D6496F3341\nRWRBM29J1kHgEswYpbUCxENybqnwwtx0bIefkDwnv8Tpmg6vt172NfRC",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDEyRTA0MUQ2NDk2RjMzNDEKUldSQk0yOUoxa0hnRXN3WXBiVUN4RU55YnFud3d0eDBiSWVma0R3bnY4VHBtZzZ2dDE3Mk5mUkMK",
       "endpoints": [
         "https://github.com/armenbadal/pensum-domesticum/releases/latest/download/latest.json"
       ],
