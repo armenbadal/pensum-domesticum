@@ -12,7 +12,7 @@
 - Keep user-facing text in Armenian and follow the existing UI patterns.
 - Keep changes focused; avoid adding frontend dependencies or build tooling unless requested.
 - Workbook files use the `.pdw` extension and are ZIP archives containing `workbook.json` and image assets.
-- Preserve compatibility with legacy squared-grid content stored as a 2D array. The current Math Grid state also stores dimensions and border data.
+- Math Grid state stores its dimensions, cell contents, and border data.
 - Keep `workbook.schema.json` and the user documentation in sync with changes to the saved format or user workflows.
 - When changing the application version, update both `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`.
 

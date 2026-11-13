@@ -432,41 +432,15 @@ function updateAssignmentNumbers() {
   });
 }
 
-function toMathGridState(content) {
-  if (!Array.isArray(content)) return content;
-
-  const rows = content.length || 10;
-  const columns = content.length
-    ? Math.max(...content.map(row => row.length), 1)
-    : 20;
-  return {
-    version: 2,
-    rows,
-    columns,
-    cells: content.length
-      ? content.map(row => Array.from({ length: columns }, (_, index) => row[index] || " ").join("")).join("\n")
-      : Array.from({ length: rows }, () => " ".repeat(columns)).join("\n"),
-    borders: []
-  };
-}
-
 function isValidSquaredContent(content) {
-  if (Array.isArray(content)) {
-    return content.every(row => Array.isArray(row) && row.every(cell => {
-      if (typeof cell !== "string") return false;
-      return cell === "" || ([...cell].length === 1 && /^[0-9+\-−*/×÷=()]$/u.test(cell));
-    }));
-  }
   if (!content || typeof content !== "object" || Array.isArray(content)) return false;
 
-  const rows = content.version === 1 ? 20 : content.rows;
-  const columns = content.version === 1 ? 20 : content.columns;
   if (
-    ![1, 2].includes(content.version) ||
-    !Number.isSafeInteger(rows) ||
-    rows < 1 ||
-    !Number.isSafeInteger(columns) ||
-    columns < 1 ||
+    content.version !== 2 ||
+    !Number.isSafeInteger(content.rows) ||
+    content.rows < 1 ||
+    !Number.isSafeInteger(content.columns) ||
+    content.columns < 1 ||
     typeof content.cells !== "string" ||
     !Array.isArray(content.borders)
   ) {
@@ -474,13 +448,13 @@ function isValidSquaredContent(content) {
   }
 
   const gridRows = content.cells.split("\n");
-  return gridRows.length === rows &&
-    gridRows.every(row => [...row].length === columns &&
+  return gridRows.length === content.rows &&
+    gridRows.every(row => [...row].length === content.columns &&
       [...row].every(character => character === " " || /^[0-9+\-−*/×÷=()]$/u.test(character))) &&
     content.borders.every(border => border &&
       Number.isInteger(border.cell) &&
       border.cell >= 0 &&
-      border.cell < rows * columns &&
+      border.cell < content.rows * content.columns &&
       ["bottom", "left"].includes(border.edge));
 }
 
@@ -490,8 +464,8 @@ function createSquaredEditor(initialContent, editable = true) {
   const grid = document.createElement("math-grid");
   grid.setAttribute("aria-label", "Վանդակավոր դաշտ");
   grid.toggleAttribute("disabled", !editable);
-  if (Array.isArray(initialContent) || (initialContent && typeof initialContent === "object")) {
-    grid.value = JSON.stringify(toMathGridState(initialContent));
+  if (initialContent && typeof initialContent === "object" && !Array.isArray(initialContent)) {
+    grid.value = JSON.stringify(initialContent);
   }
   grid.addEventListener("input", clearOutput);
   scroll.append(grid);
@@ -675,13 +649,13 @@ function createAddCommentButton(assignmentNumber, sections) {
   return button;
 }
 
-function createAssignment(savedAssignment = { problem: [] }) {
+function createAssignment(savedAssignment = { problem: [], solution: [] }) {
   const card = document.createElement("article");
   card.className = "assignment-card";
   const isTeacher = userMode === USER_MODES.TEACHER;
   const canEditTeacherContent = isTeacher && !workbookSolved;
   const canEditStudentSolution = !isTeacher && !workbookVerified;
-  const savedSolution = Array.isArray(savedAssignment.solution) ? savedAssignment.solution : [];
+  const savedSolution = savedAssignment.solution;
 
   const heading = document.createElement("div");
   heading.className = "assignment-heading";
@@ -797,7 +771,7 @@ function validateWorkbookDocument(documentData) {
   }
   if (
     typeof documentData.title !== "string" ||
-    (documentData.description !== undefined && typeof documentData.description !== "string") ||
+    typeof documentData.description !== "string" ||
     !(
       documentData.teacher &&
       typeof documentData.teacher === "object" &&
@@ -810,7 +784,7 @@ function validateWorkbookDocument(documentData) {
       typeof documentData.student.name !== "string" ||
       typeof documentData.student.email !== "string"
     )) ||
-    (documentData.solved !== undefined && typeof documentData.solved !== "boolean") ||
+    typeof documentData.solved !== "boolean" ||
     (documentData.verified !== undefined && (
       !documentData.verified ||
       typeof documentData.verified !== "object" ||
@@ -831,13 +805,13 @@ function validateWorkbookDocument(documentData) {
       !assignment ||
       typeof assignment !== "object" ||
       !Array.isArray(assignment.problem) ||
-      (assignment.solution !== undefined && !Array.isArray(assignment.solution)) ||
+      !Array.isArray(assignment.solution) ||
       (assignment["teacher-comment"] !== undefined &&
         typeof assignment["teacher-comment"] !== "string")
     ) {
       throw new Error("Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։");
     }
-    for (const blocks of [assignment.problem, assignment.solution ?? []]) {
+    for (const blocks of [assignment.problem, assignment.solution]) {
       for (const block of blocks) {
         if (!block || typeof block !== "object") {
           throw new Error("Բովանդակության բլոկի տվյալները սխալ ձևաչափ ունեն։");
@@ -854,11 +828,11 @@ function validateWorkbookDocument(documentData) {
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
   form.elements.title.value = documentData.title;
-  workbookDescriptionInput.value = documentData.description ?? "";
+  workbookDescriptionInput.value = documentData.description;
   workbookTeacher = documentData.teacher;
   workbookStudent = documentData.student ?? null;
   hasLoadedWorkbook = true;
-  workbookSolved = documentData.solved === true;
+  workbookSolved = documentData.solved;
   workbookVerified = documentData.verified !== undefined;
   workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
   assignmentList.replaceChildren(addAssignmentButton);

@@ -258,15 +258,35 @@ fn read_workbook_archive(path: String) -> Result<Value, String> {
     if workbook.get("formatVersion").and_then(Value::as_u64) != Some(1) {
         return Err("Տետրի ZIP ձևաչափի տարբերակը չի աջակցվում։".to_string());
     }
-    if workbook
-        .get("solved")
-        .is_some_and(|solved| !solved.is_boolean())
-    {
-        return Err("Տետրի solved դրոշը պետք է լինի boolean։".to_string());
-    }
+    validate_current_workbook(&workbook)?;
 
     restore_images(&mut workbook, &mut archive)?;
     Ok(workbook)
+}
+
+fn validate_current_workbook(workbook: &Value) -> Result<(), String> {
+    if !workbook.get("solved").is_some_and(Value::is_boolean) {
+        return Err("Տետրի solved դրոշը պետք է լինի boolean։".to_string());
+    }
+
+    let assignments = workbook
+        .get("assignments")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Տետրում առաջադրանքների ցուցակ չկա։".to_string())?;
+    for assignment in assignments {
+        let assignment = assignment
+            .as_object()
+            .ok_or_else(|| "Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։".to_string())?;
+        for section_name in ["problem", "solution"] {
+            if !assignment.get(section_name).is_some_and(Value::is_array) {
+                return Err(format!(
+                    "Առաջադրանքի {section_name} բաժինը պետք է լինի ցուցակ։"
+                ));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn restore_images(workbook: &mut Value, archive: &mut zip::ZipArchive<File>) -> Result<(), String> {
@@ -277,12 +297,10 @@ fn restore_images(workbook: &mut Value, archive: &mut zip::ZipArchive<File>) -> 
 
     for assignment in assignments {
         for section_name in ["problem", "solution"] {
-            let Some(blocks) = assignment
+            let blocks = assignment
                 .get_mut(section_name)
                 .and_then(Value::as_array_mut)
-            else {
-                continue;
-            };
+                .ok_or_else(|| format!("Առաջադրանքի {section_name} բաժինը պետք է լինի ցուցակ։"))?;
 
             for block in blocks {
                 if block.get("type").and_then(Value::as_str) != Some("image") {
@@ -343,8 +361,7 @@ fn validate_image_entry_path(path: &str) -> Result<(), String> {
 
 fn write_workbook_archive(path: String, mut workbook: Value) -> Result<(), String> {
     let target_path = zip_path(PathBuf::from(path))?;
-    ensure_solution_sections(&mut workbook)?;
-    ensure_solved_flag(&mut workbook)?;
+    validate_current_workbook(&workbook)?;
     let parent = target_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -381,40 +398,6 @@ fn write_workbook_archive(path: String, mut workbook: Value) -> Result<(), Strin
     Ok(())
 }
 
-fn ensure_solution_sections(workbook: &mut Value) -> Result<(), String> {
-    let assignments = workbook
-        .get_mut("assignments")
-        .and_then(Value::as_array_mut)
-        .ok_or_else(|| "Տետրում առաջադրանքների ցուցակ չկա։".to_string())?;
-    for assignment in assignments {
-        let assignment = assignment
-            .as_object_mut()
-            .ok_or_else(|| "Առաջադրանքի տվյալները սխալ ձևաչափ ունեն։".to_string())?;
-        match assignment.get("solution") {
-            Some(Value::Array(_)) => {}
-            Some(_) => return Err("Առաջադրանքի լուծումները պետք է լինեն ցուցակ։".to_string()),
-            None => {
-                assignment.insert("solution".to_string(), Value::Array(Vec::new()));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn ensure_solved_flag(workbook: &mut Value) -> Result<(), String> {
-    let document = workbook
-        .as_object_mut()
-        .ok_or_else(|| "Տետրի տվյալները պետք է լինեն JSON օբյեկտ։".to_string())?;
-    match document.get("solved") {
-        Some(Value::Bool(_)) => Ok(()),
-        Some(_) => Err("Տետրի solved դրոշը պետք է լինի boolean։".to_string()),
-        None => {
-            document.insert("solved".to_string(), Value::Bool(false));
-            Ok(())
-        }
-    }
-}
-
 fn zip_path(mut path: PathBuf) -> Result<PathBuf, String> {
     if path.as_os_str().is_empty() {
         return Err("Պահպանման ուղին դատարկ է։".to_string());
@@ -443,12 +426,10 @@ fn package_images<W: Write + Seek>(
 
     for assignment in assignments {
         for section_name in ["problem", "solution"] {
-            let Some(blocks) = assignment
+            let blocks = assignment
                 .get_mut(section_name)
                 .and_then(Value::as_array_mut)
-            else {
-                continue;
-            };
+                .ok_or_else(|| format!("Առաջադրանքի {section_name} բաժինը պետք է լինի ցուցակ։"))?;
 
             for block in blocks {
                 if block.get("type").and_then(Value::as_str) != Some("image") {
@@ -618,12 +599,15 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
+            "description": "",
             "teacher": {
                 "name": "Ուսուցիչ",
                 "email": "teacher@example.com"
             },
             "created-at": "2026-11-11",
+            "solved": false,
             "assignments": [{
+                "solution": [],
                 "problem": [{
                     "type": "image",
                     "url": "data:image/png;base64,SGVsbG8="
@@ -667,6 +651,7 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
+            "description": "",
             "solved": true,
             "teacher": {
                 "name": "Ուսուցիչ",
@@ -674,6 +659,7 @@ mod tests {
             },
             "created-at": "2026-11-11",
             "assignments": [{
+                "solution": [],
                 "problem": [{
                     "type": "image",
                     "url": "data:image/png;base64,SGVsbG8="
@@ -697,6 +683,7 @@ mod tests {
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
             "title": "Դաս",
+            "description": "",
             "solved": true,
             "teacher": {
                 "name": "Ուսուցիչ",
@@ -735,9 +722,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_boolean_solved_flags() {
-        let mut workbook = json!({ "solved": "true", "assignments": [] });
-        assert!(ensure_solved_flag(&mut workbook).is_err());
+    fn requires_current_workbook_fields() {
+        assert!(
+            validate_current_workbook(&json!({
+                "assignments": []
+            }))
+            .is_err()
+        );
+        assert!(
+            validate_current_workbook(&json!({
+                "solved": "true",
+                "assignments": []
+            }))
+            .is_err()
+        );
+        assert!(
+            validate_current_workbook(&json!({
+                "solved": false,
+                "assignments": [{
+                    "problem": []
+                }]
+            }))
+            .is_err()
+        );
+        assert!(
+            validate_current_workbook(&json!({
+                "solved": false,
+                "assignments": [{
+                    "problem": [],
+                    "solution": []
+                }]
+            }))
+            .is_ok()
+        );
     }
 
     #[test]

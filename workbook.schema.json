@@ -3,44 +3,26 @@
   "$defs": {
     "math-grid-state": {
       "type": "object",
-      "oneOf": [
-        {
-          "properties": {
-            "version": {
-              "const": 1
-            },
-            "cells": {
-              "type": "string"
-            },
-            "borders": {
-              "$ref": "#/$defs/math-grid-borders"
-            }
-          },
-          "required": ["version", "cells", "borders"]
+      "properties": {
+        "version": {
+          "const": 2
         },
-        {
-          "properties": {
-            "version": {
-              "const": 2
-            },
-            "rows": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "columns": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "cells": {
-              "type": "string"
-            },
-            "borders": {
-              "$ref": "#/$defs/math-grid-borders"
-            }
-          },
-          "required": ["version", "rows", "columns", "cells", "borders"]
+        "rows": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cells": {
+          "type": "string"
+        },
+        "borders": {
+          "$ref": "#/$defs/math-grid-borders"
         }
-      ]
+      },
+      "required": ["version", "rows", "columns", "cells", "borders"]
     },
     "math-grid-borders": {
       "type": "array",
@@ -83,7 +65,7 @@
               "type": "string"
             }
           },
-          "required": ["type"]
+          "required": ["type", "content"]
         },
         {
           "properties": {
@@ -95,7 +77,7 @@
               "format": "uri"
             }
           },
-          "required": ["type"]
+          "required": ["type", "url"]
         },
         {
           "properties": {
@@ -103,23 +85,10 @@
               "const": "squared"
             },
             "content": {
-              "oneOf": [
-                {
-                  "type": "array",
-                  "items": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
-                  }
-                },
-                {
-                  "$ref": "#/$defs/math-grid-state"
-                }
-              ]
+              "$ref": "#/$defs/math-grid-state"
             }
           },
-          "required": ["type"]
+          "required": ["type", "content"]
         }
       ]
     },
@@ -132,6 +101,9 @@
   },
   "type": "object",
   "properties": {
+    "formatVersion": {
+      "const": 1
+    },
     "solved": {
       "type": "boolean"
     },
@@ -182,5 +154,13 @@
       }
     }
   },
-  "required": ["title", "teacher", "created-at"]
+  "required": [
+    "formatVersion",
+    "solved",
+    "title",
+    "description",
+    "teacher",
+    "created-at",
+    "assignments"
+  ]
 }

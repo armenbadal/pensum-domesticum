@@ -1,6 +1,5 @@
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLUMNS = 20;
-const LEGACY_ROWS = 20;
 const ALLOWED_CHARACTER = /^[0-9+\-−*/×÷=()]$/u;
 
 class MathGrid extends HTMLElement {
@@ -410,11 +409,11 @@ class MathGrid extends HTMLElement {
       return;
     }
 
-    const rowCount = restored?.version === 1 ? LEGACY_ROWS : restored?.rows;
-    const columnCount = restored?.version === 1 ? DEFAULT_COLUMNS : restored?.columns;
+    const rowCount = restored?.rows;
+    const columnCount = restored?.columns;
     if (
       !restored
-      || ![1, 2].includes(restored.version)
+      || restored.version !== 2
       || !Number.isSafeInteger(rowCount)
       || rowCount < 1
       || !Number.isSafeInteger(columnCount)
