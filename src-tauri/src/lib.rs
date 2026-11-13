@@ -8,7 +8,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Mutex,
 };
-use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::image::Image;
+use tauri::menu::{IconMenuItem, IsMenuItem, Menu, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
 use tauri_plugin_updater::UpdaterExt;
 use tempfile::NamedTempFile;
@@ -172,13 +173,48 @@ fn build_app_menu<M: Manager<Wry>>(
     is_teacher: bool,
     workbook_verified: bool,
 ) -> tauri::Result<Menu<Wry>> {
-    let create_item = MenuItem::with_id(manager, "create", "Ստեղծել", true, None::<&str>)?;
-    let open_item = MenuItem::with_id(manager, "open", "Բացել", true, None::<&str>)?;
-    let save_item = MenuItem::with_id(manager, "save", "Պահպանել", true, None::<&str>)?;
-    let send_item = MenuItem::with_id(manager, "send", "Ուղարկել", true, None::<&str>)?;
-    let settings_item =
-        MenuItem::with_id(manager, "settings", "Կարգավորումներ", true, None::<&str>)?;
-    let exit_item = MenuItem::with_id(manager, "exit", "Ելք", true, None::<&str>)?;
+    let create_item = icon_menu_item(
+        manager,
+        "create",
+        "Ստեղծել",
+        include_bytes!("../icons/menu/create.png"),
+    )?;
+    let open_item = icon_menu_item(
+        manager,
+        "open",
+        "Բացել",
+        include_bytes!("../icons/menu/open.png"),
+    )?;
+    let save_item = icon_menu_item(
+        manager,
+        "save",
+        "Պահպանել",
+        include_bytes!("../icons/menu/save.png"),
+    )?;
+    let send_item = icon_menu_item(
+        manager,
+        "send",
+        "Ուղարկել",
+        include_bytes!("../icons/menu/send.png"),
+    )?;
+    let settings_item = icon_menu_item(
+        manager,
+        "settings",
+        "Կարգավորումներ",
+        include_bytes!("../icons/menu/settings.png"),
+    )?;
+    let exit_item = icon_menu_item(
+        manager,
+        "exit",
+        "Ելք",
+        include_bytes!("../icons/menu/exit.png"),
+    )?;
+    let about_item = icon_menu_item(
+        manager,
+        "about",
+        "Ծրագրի մասին",
+        include_bytes!("../icons/menu/about.png"),
+    )?;
     let separator = PredefinedMenuItem::separator(manager)?;
     let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher {
         vec![
@@ -202,7 +238,18 @@ fn build_app_menu<M: Manager<Wry>>(
         ]
     };
     let workbook_menu = Submenu::with_items(manager, "Տետր", true, &items)?;
-    Menu::with_items(manager, &[&workbook_menu])
+    let help_menu = Submenu::with_items(manager, "Հուշում", true, &[&about_item])?;
+    Menu::with_items(manager, &[&workbook_menu, &help_menu])
+}
+
+fn icon_menu_item<M: Manager<Wry>>(
+    manager: &M,
+    id: &str,
+    text: &str,
+    icon_bytes: &[u8],
+) -> tauri::Result<IconMenuItem<Wry>> {
+    let icon = Image::from_bytes(icon_bytes)?;
+    IconMenuItem::with_id(manager, id, text, true, Some(icon), None::<&str>)
 }
 
 #[tauri::command]
@@ -529,7 +576,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| {
-            if event.id() == "settings" {
+            if event.id() == "about" {
+                if let Err(error) = app.emit("open-about", env!("CARGO_PKG_VERSION")) {
+                    eprintln!("Չհաջողվեց բացել «Ծրագրի մասին» պատուհանը։ {error}");
+                }
+            } else if event.id() == "settings" {
                 if let Err(error) = app.emit("open-settings", ()) {
                     eprintln!("Failed to open settings: {error}");
                 }

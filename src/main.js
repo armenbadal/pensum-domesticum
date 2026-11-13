@@ -7,6 +7,8 @@ const workbookDescriptionInput = document.querySelector("#workbook-description")
 const verificationSection = document.querySelector("#verification-section");
 const workbookGradeInput = document.querySelector("#workbook-grade");
 const settingsDialog = document.querySelector("#settings-dialog");
+const aboutDialog = document.querySelector("#about-dialog");
+const aboutVersion = document.querySelector("#about-version");
 const modeSelect = document.querySelector("#user-mode");
 const profileNameLabel = document.querySelector("#profile-name-label");
 const profileEmailLabel = document.querySelector("#profile-email-label");
@@ -166,6 +168,21 @@ async function listenForSettingsMenu() {
   }
 }
 
+async function listenForAboutMenu() {
+  try {
+    await window.__TAURI__.event.listen("open-about", event => {
+      if (typeof event.payload !== "string") {
+        showStatus("Ծրագրի տարբերակի տվյալները սխալ ձևաչափ ունեն։", "error");
+        return;
+      }
+      aboutVersion.textContent = event.payload;
+      if (!aboutDialog.open) aboutDialog.showModal();
+    });
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել «Հուշում» մենյուն։ ${error.message}`, "error");
+  }
+}
+
 async function syncNativeMenuMode() {
   try {
     await window.__TAURI__.core.invoke("set_user_mode", {
@@ -305,10 +322,23 @@ async function saveWorkbook() {
 
   try {
     const documentData = createDocument();
-    const safeName = documentData.title.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-") || "workbook";
+    const invalidFileNameCharacters = /[<>:"/\\|?*\u0000-\u001f]/g;
+    const safeName = documentData.title.trim().replace(invalidFileNameCharacters, "-") || "workbook";
+    const safeStudentName = studentDetails.name
+      .trim()
+      .replace(invalidFileNameCharacters, "-")
+      .replace(/\s+/g, "-");
+    const isGradedSolution = userMode === USER_MODES.TEACHER
+      && documentData.solved
+      && documentData.verified?.grade !== undefined;
+    const suffix = isGradedSolution
+      ? "-լուծված-գնահատված"
+      : userMode === USER_MODES.STUDENT && documentData.solved
+        ? `-${safeStudentName}-լուծված`
+        : "";
     const path = await window.__TAURI__.dialog.save({
       title: "Պահպանել տետրը",
-      defaultPath: `${safeName}${userMode === USER_MODES.STUDENT ? "-response" : ""}.pdw`,
+      defaultPath: `${safeName}${suffix}.pdw`,
       filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
     });
     if (!path) return;
@@ -867,6 +897,7 @@ applyUserMode();
 syncNativeMenuMode();
 listenForCreateMenu();
 listenForSettingsMenu();
+listenForAboutMenu();
 listenForSaveMenu();
 listenForOpenMenu();
 listenForPendingWorkbookFiles();
