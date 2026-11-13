@@ -191,12 +191,6 @@ fn build_app_menu<M: Manager<Wry>>(
         "Պահպանել",
         include_bytes!("../icons/menu/save.png"),
     )?;
-    let send_item = icon_menu_item(
-        manager,
-        "send",
-        "Ուղարկել",
-        include_bytes!("../icons/menu/send.png"),
-    )?;
     let settings_item = icon_menu_item(
         manager,
         "settings",
@@ -221,7 +215,6 @@ fn build_app_menu<M: Manager<Wry>>(
             &create_item,
             &open_item,
             &save_item,
-            &send_item,
             &separator,
             &settings_item,
             &exit_item,
