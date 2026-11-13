@@ -1,4 +1,5 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::Serialize;
 use serde_json::Value;
 use std::{
     ffi::OsStr,
@@ -9,6 +10,7 @@ use std::{
 };
 use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri_plugin_updater::UpdaterExt;
 use tempfile::NamedTempFile;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
@@ -56,6 +58,89 @@ where
 #[tauri::command]
 fn exit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateProgress {
+    downloaded_bytes: u64,
+    content_length: Option<u64>,
+}
+
+#[tauri::command]
+async fn check_for_updates(app: AppHandle) -> Result<Option<String>, String> {
+    if cfg!(debug_assertions) {
+        return Ok(None);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let update = app
+            .updater()
+            .map_err(|error| format!("Չհաջողվեց պատրաստել թարմացման ստուգումը։ {error}"))?
+            .check()
+            .await
+            .map_err(|error| format!("Չհաջողվեց ստուգել թարմացումները։ {error}"))?;
+        Ok(update.map(|update| update.version))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn install_update(app: AppHandle, expected_version: String) -> Result<(), String> {
+    if cfg!(debug_assertions) {
+        return Err("Թարմացումները հասանելի են միայն տեղադրված տարբերակում։".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let update = app
+            .updater()
+            .map_err(|error| format!("Չհաջողվեց պատրաստել թարմացումը։ {error}"))?
+            .check()
+            .await
+            .map_err(|error| format!("Չհաջողվեց ստուգել թարմացումը։ {error}"))?
+            .ok_or_else(|| "Թարմացումն այլևս հասանելի չէ։".to_string())?;
+        if update.version != expected_version {
+            return Err(
+                "Հասանելի տարբերակը փոխվել է։ Փակիր և հաջորդ գործարկման ժամանակ նորից ստուգիր։"
+                    .to_string(),
+            );
+        }
+
+        let mut downloaded_bytes = 0u64;
+        let progress_app = app.clone();
+        update
+            .download_and_install(
+                move |chunk_length, content_length| {
+                    downloaded_bytes = downloaded_bytes.saturating_add(chunk_length as u64);
+                    if let Err(error) = progress_app.emit(
+                        "update-progress",
+                        UpdateProgress {
+                            downloaded_bytes,
+                            content_length,
+                        },
+                    ) {
+                        eprintln!("Չհաջողվեց ցուցադրել թարմացման ընթացքը։ {error}");
+                    }
+                },
+                || {},
+            )
+            .await
+            .map_err(|error| format!("Չհաջողվեց ներբեռնել կամ տեղադրել թարմացումը։ {error}"))?;
+        app.restart()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, expected_version);
+        Err("Թարմացումները ներկայումս աջակցվում են միայն Windows-ում։".to_string())
+    }
 }
 
 #[tauri::command]
@@ -461,6 +546,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| {
             if event.id() == "settings" {
                 if let Err(error) = app.emit("open-settings", ()) {
@@ -491,6 +577,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             exit_app,
+            check_for_updates,
+            install_update,
             open_workbook,
             take_pending_workbook_paths,
             save_workbook,

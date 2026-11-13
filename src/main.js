@@ -177,6 +177,56 @@ async function syncNativeMenuMode() {
   }
 }
 
+async function checkForUpdates() {
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  await pendingWorkbookProcessing;
+
+  try {
+    const version = await window.__TAURI__.core.invoke("check_for_updates");
+    if (!version) return;
+
+    if (hasUnsavedChanges) {
+      showStatus(
+        `Հասանելի է ${version} տարբերակը․ նախ պահպանիր տետրը, ապա վերագործարկիր ծրագիրը։`,
+        "error"
+      );
+      return;
+    }
+
+    const confirmed = await window.__TAURI__.dialog.confirm(
+      `Հասանելի է հավելվածի նոր՝ ${version} տարբերակը։ Ներբեռնե՞լ և տեղադրե՞լ այն հիմա։`,
+      { title: "Հավելվածի թարմացում", kind: "info" }
+    );
+    if (!confirmed) return;
+
+    if (hasUnsavedChanges) {
+      showStatus("Թարմացումից առաջ պահպանիր տետրի փոփոխությունները։", "error");
+      return;
+    }
+
+    showStatus(`Ներբեռնվում է ${version} թարմացումը…`);
+    const unlisten = await window.__TAURI__.event.listen("update-progress", ({ payload }) => {
+      if (payload.contentLength) {
+        const percent = Math.min(
+          100,
+          Math.round(payload.downloadedBytes / payload.contentLength * 100)
+        );
+        showStatus(`Ներբեռնվում է ${version} թարմացումը… ${percent}%`);
+      } else {
+        const megabytes = (payload.downloadedBytes / 1024 / 1024).toFixed(1);
+        showStatus(`Ներբեռնվում է ${version} թարմացումը… ${megabytes} ՄԲ`);
+      }
+    });
+    try {
+      await window.__TAURI__.core.invoke("install_update", { expectedVersion: version });
+    } finally {
+      unlisten();
+    }
+  } catch (error) {
+    showStatus(`Թարմացման գործընթացը չհաջողվեց։ ${error.message}`, "error");
+  }
+}
+
 async function confirmDiscardChanges(message) {
   if (!hasUnsavedChanges) return true;
   return window.__TAURI__.dialog.confirm(
@@ -847,3 +897,4 @@ listenForSaveMenu();
 listenForOpenMenu();
 listenForPendingWorkbookFiles();
 listenForExitMenu();
+checkForUpdates();

@@ -21,6 +21,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "fileAssociations": [
       {
@@ -41,5 +42,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "untrusted comment: minisign public key: 12E041D6496F3341\nRWRBM29J1kHgEswYpbUCxENybqnwwtx0bIefkDwnv8Tpmg6vt172NfRC",
+      "endpoints": [
+        "https://github.com/armenbadal/pensum-domesticum/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
