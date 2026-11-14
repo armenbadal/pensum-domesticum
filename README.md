@@ -64,6 +64,24 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 Ձեռքով ստուգման դեպքերը և արդյունքների գրանցման ձևը՝ [TEST_PLAN.md](./TEST_PLAN.md)-ում։
 
+## Ռելիզի հրապարակում
+
+Ռելիզի օգնական սկրիպտը աշխատում է Python 3.8 կամ ավելի նոր տարբերակով՝ առանց venv-ի և արտաքին Python փաթեթների։ Պետք է նաև, որ Git-ը, Node.js-ը և Rust/Cargo-ն հասանելի լինեն `PATH`-ում, իսկ Tauri-ի build prerequisites-ը տեղադրված լինեն։
+
+Windows-ում գործարկեք՝
+
+```powershell
+py -3 release.py 0.3.0
+```
+
+Linux-ում կամ macOS-ում գործարկեք՝
+
+```sh
+python3 release.py 0.3.0
+```
+
+Սկրիպտը թարմացնում է տարբերակի համարները, գործարկում ստուգումներն ու release build-ը, ապա commit և push է անում branch-ն ու `v0.3.0` tag-ը։ Հաջող tag push-ը գործարկում է Windows installer-ի GitHub Actions workflow-ը։ Այն ինքնաշխատ commit/push/tag չի անում, եթե ստուգումներից որևէ մեկը ձախողվի, աշխատանքային ծառը մաքուր չէ, կամ branch-ը `origin`-ի հետ համաժամեցված չէ։
+
 ## Տվյալների ձևաչափ
 
 `.pdw` ֆայլերը ZIP արխիվներ են․ դրանցում տետրի տվյալները պահվում են `workbook.json`-ում, իսկ պատկերները՝ առանձին ֆայլերով։ Տվյալների կառուցվածքը նկարագրված է [workbook.schema.json](./workbook.schema.json)-ում։
