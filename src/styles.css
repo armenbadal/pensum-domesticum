@@ -197,7 +197,14 @@ textarea {
 }
 
 .assignment-heading {
+  position: relative;
+  justify-content: center;
   margin-bottom: 16px;
+}
+
+.assignment-heading .remove-block-button {
+  position: absolute;
+  right: 0;
 }
 
 .assignment-sections {
@@ -339,6 +346,7 @@ textarea {
 
 .content-block-text textarea {
   flex: 1;
+  font-weight: 400;
 }
 
 .content-block-squared {

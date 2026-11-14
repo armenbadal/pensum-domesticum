@@ -587,11 +587,13 @@ function createContentSection(name, title, initialBlocks = [], editable = true) 
   section.className = "content-section";
   section.dataset.section = name;
 
-  const heading = document.createElement("div");
-  heading.className = "section-heading";
-  const titleElement = document.createElement("h4");
-  titleElement.textContent = title;
-  heading.append(titleElement);
+  const heading = title ? document.createElement("div") : null;
+  if (heading) {
+    heading.className = "section-heading";
+    const titleElement = document.createElement("h4");
+    titleElement.textContent = title;
+    heading.append(titleElement);
+  }
 
   const blocks = document.createElement("div");
   blocks.className = "block-list";
@@ -626,7 +628,8 @@ function createContentSection(name, title, initialBlocks = [], editable = true) 
   tools.children[2].setAttribute("aria-label", "Ավելացնել վանդակավոր դաշտ");
   tools.children[2].title = "Վանդակավոր դաշտ";
   tools.hidden = !editable;
-  section.append(heading, blocks, tools);
+  if (heading) section.append(heading);
+  section.append(blocks, tools);
   return section;
 }
 
@@ -708,7 +711,7 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
   const sections = document.createElement("div");
   sections.className = "assignment-sections";
   sections.append(
-    createContentSection("problem", "Խնդիր", savedAssignment.problem, canEditTeacherContent),
+    createContentSection("problem", null, savedAssignment.problem, canEditTeacherContent),
   );
   if (!isTeacher || savedSolution.length > 0 || workbookSolved) {
     sections.append(
@@ -867,6 +870,12 @@ function loadWorkbookDocument(documentData) {
   workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
   assignmentList.replaceChildren(addAssignmentButton);
   documentData.assignments.forEach(createAssignment);
+  assignmentList.querySelectorAll(".content-block-text textarea").forEach(textarea => {
+    textarea.style.height = "auto";
+    const styles = getComputedStyle(textarea);
+    const borderHeight = parseFloat(styles.borderTopWidth) + parseFloat(styles.borderBottomWidth);
+    textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
+  });
   updateReviewControls();
   hasUnsavedChanges = false;
   showStatus(
