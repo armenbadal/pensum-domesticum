@@ -35,6 +35,19 @@ function showStatus(message, type = "") {
   status.className = type ? `status status-${type}` : "status";
 }
 
+function isDirty() {
+  return revision !== savedRevision;
+}
+
+function markWorkbookChanged() {
+  revision += 1;
+}
+
+function markWorkbookSaved() {
+  revision = 0;
+  savedRevision = 0;
+}
+
 function loadUserMode() {
   try {
     const savedMode = localStorage.getItem(USER_MODE_STORAGE_KEY);
@@ -76,7 +89,10 @@ function loadProfileDetails(storageKey, profileName, includeClass = false) {
 let userMode = loadUserMode();
 let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
 let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի", true);
-let hasUnsavedChanges = false;
+let revision = 0;
+let savedRevision = 0;
+let saveInProgress = false;
+let currentWorkbookPath = null;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
 let workbookVerified = false;
@@ -181,6 +197,12 @@ settingsDialog.addEventListener("close", async () => {
       verified: workbookVerified
     });
     const assignments = collectAssignments();
+    const modeChanged = selectedMode !== userMode;
+    const detailsChanged = isTeacher
+      ? teacherDetails.name !== updatedDetails.name || teacherDetails.email !== updatedDetails.email
+      : studentDetails.name !== updatedDetails.name ||
+        studentDetails.email !== updatedDetails.email ||
+        studentDetails.class !== updatedDetails.class;
     userMode = selectedMode;
     if (isTeacher) {
       teacherDetails = updatedDetails;
@@ -188,6 +210,9 @@ settingsDialog.addEventListener("close", async () => {
       studentDetails = updatedDetails;
     }
     applyUserMode(assignments);
+    if (modeChanged || detailsChanged) {
+      markWorkbookChanged();
+    }
     showStatus("Կարգավորումները պահպանվեցին։");
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել ռեժիմը։ ${error.message}`, "error");
@@ -236,7 +261,7 @@ async function checkForUpdates() {
     const version = await window.__TAURI__.core.invoke("check_for_updates");
     if (!version) return;
 
-    if (hasUnsavedChanges) {
+    if (isDirty()) {
       showStatus(
         `Հասանելի է ${version} տարբերակը․ նախ պահպանիր տետրը, ապա վերագործարկիր ծրագիրը։`,
         "error"
@@ -250,7 +275,7 @@ async function checkForUpdates() {
     );
     if (!confirmed) return;
 
-    if (hasUnsavedChanges) {
+    if (isDirty()) {
       showStatus("Թարմացումից առաջ պահպանիր տետրի փոփոխությունները։", "error");
       return;
     }
@@ -279,7 +304,7 @@ async function checkForUpdates() {
 }
 
 async function confirmDiscardChanges(message) {
-  if (!hasUnsavedChanges) return true;
+  if (!isDirty()) return true;
   return window.__TAURI__.dialog.confirm(
     `Չպահպանված փոփոխությունները կկորչեն։ ${message}`,
     { title: "Չպահպանված փոփոխություններ", kind: "warning" }
@@ -301,7 +326,8 @@ async function createWorkbook() {
     workbookTeacher = null;
     workbookStudent = null;
     workbookGradeInput.value = "";
-    hasUnsavedChanges = false;
+    currentWorkbookPath = null;
+    markWorkbookSaved();
     updateReviewControls();
     updateSenderInfo();
     await syncNativeMenuMode();
@@ -319,13 +345,17 @@ async function listenForCreateMenu() {
   }
 }
 
-async function saveWorkbook() {
+async function saveWorkbook({ saveAs = false } = {}) {
   if (userMode === USER_MODES.STUDENT && workbookVerified) {
     showStatus("Ստուգված տետրը միայն դիտման համար է։", "error");
     return;
   }
   if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
     showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
+    return;
+  }
+  if (saveInProgress) {
+    showStatus("Պահպանումն արդեն ընթացքի մեջ է։", "error");
     return;
   }
   if (!form.reportValidity()) return;
@@ -359,7 +389,9 @@ async function saveWorkbook() {
     }
   }
 
+  saveInProgress = true;
   try {
+    const revisionAtStart = revision;
     const documentData = createDocument();
     const invalidFileNameCharacters = /[<>:"/\\|?*\u0000-\u001f]/g;
     const safeName = documentData.title.trim().replace(invalidFileNameCharacters, "-") || "workbook";
@@ -375,12 +407,15 @@ async function saveWorkbook() {
       : userMode === USER_MODES.STUDENT && documentData.solved
         ? `-${safeStudentName}-լուծված`
         : "";
-    const path = await window.__TAURI__.dialog.save({
-      title: "Պահպանել տետրը",
-      defaultPath: `${safeName}${suffix}.pdw`,
-      filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
-    });
-    if (!path) return;
+    let path = saveAs ? null : currentWorkbookPath;
+    if (!path) {
+      path = await window.__TAURI__.dialog.save({
+        title: "Պահպանել տետրը",
+        defaultPath: `${safeName}${suffix}.pdw`,
+        filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
+      });
+      if (!path) return;
+    }
 
     documentData["created-at"] = getLocalDateString();
     await window.__TAURI__.core.invoke("save_workbook", {
@@ -389,19 +424,34 @@ async function saveWorkbook() {
     });
     workbookSolved = documentData.solved;
     workbookVerified = documentData.verified !== undefined;
-    hasUnsavedChanges = false;
+    currentWorkbookPath = path;
+    savedRevision = revisionAtStart;
     await syncNativeMenuMode();
-    showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
+    if (revision === savedRevision) {
+      showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
+    } else {
+      showStatus("Տետրը պահպանվեց, բայց պահպանման ընթացքում նոր փոփոխություններ կան։", "error");
+    }
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել տետրը։ ${error.message}`, "error");
+  } finally {
+    saveInProgress = false;
   }
 }
 
 async function listenForSaveMenu() {
   try {
-    await window.__TAURI__.event.listen("save-workbook", saveWorkbook);
+    await window.__TAURI__.event.listen("save-workbook", () => saveWorkbook());
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել պահպանման մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function listenForSaveAsMenu() {
+  try {
+    await window.__TAURI__.event.listen("save-workbook-as", () => saveWorkbook({ saveAs: true }));
+  } catch (error) {
+    showStatus(`Չհաջողվեց միացնել «Պահպանել որպես» մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -409,6 +459,7 @@ async function openWorkbookFromPath(path) {
   if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
   const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
   loadWorkbookDocument(documentData);
+  currentWorkbookPath = path;
   await syncNativeMenuMode();
 }
 
@@ -783,7 +834,7 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
 }
 
 function clearOutput(message = "Փոփոխություններ կան․ տետրը պահպանելու համար ընտրիր «Պահպանել»։") {
-  hasUnsavedChanges = true;
+  markWorkbookChanged();
   showStatus(message);
 }
 
@@ -920,7 +971,7 @@ function loadWorkbookDocument(documentData) {
   });
   updateReviewControls();
   updateSenderInfo();
-  hasUnsavedChanges = false;
+  markWorkbookSaved();
   showStatus(
     workbookSolved && userMode === USER_MODES.TEACHER
       ? "Լուծված տետրը բացվեց․ պայմաններն ու լուծումները read-only են, կարող ես ավելացնել մեկնաբանություններ և գնահատական։"
@@ -951,6 +1002,7 @@ listenForCreateMenu();
 listenForSettingsMenu();
 listenForAboutMenu();
 listenForSaveMenu();
+listenForSaveAsMenu();
 listenForOpenMenu();
 listenForPendingWorkbookFiles();
 listenForExitMenu();

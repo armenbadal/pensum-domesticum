@@ -5,6 +5,7 @@ use std::{
     fs::File,
     io::{self, Read, Seek, Write},
     path::{Path, PathBuf},
+    sync::Mutex,
 };
 use tempfile::NamedTempFile;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
@@ -88,6 +89,10 @@ pub(crate) fn read_workbook_archive(path: String) -> Result<Value, String> {
 
 fn read_workbook_archive_with_limits(path: String, limits: Limits) -> Result<Value, String> {
     let file = File::open(&path).map_err(|error| format!("Չհաջողվեց կարդալ ֆայլը։ {error}"))?;
+    read_workbook_archive_file(file, limits)
+}
+
+fn read_workbook_archive_file(file: File, limits: Limits) -> Result<Value, String> {
     let metadata = file
         .metadata()
         .map_err(|error| format!("Չհաջողվեց ստանալ ֆայլի տվյալները։ {error}"))?;
@@ -326,16 +331,83 @@ fn display_entry_name(name: &str) -> String {
     displayed
 }
 
+static SAVE_LOCK: Mutex<()> = Mutex::new(());
+
 pub(crate) fn write_workbook_archive(path: String, workbook: Value) -> Result<(), String> {
+    let _save_guard = SAVE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     write_workbook_archive_with_limits(path, workbook, DEFAULT_LIMITS)
 }
 
 fn write_workbook_archive_with_limits(
     path: String,
-    mut workbook: Value,
+    workbook: Value,
     limits: Limits,
 ) -> Result<(), String> {
     let target_path = zip_path(PathBuf::from(path))?;
+    let mut workbook = prepare_workbook(workbook, &limits)?;
+    let parent = target_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    let mut temporary = NamedTempFile::new_in(parent)
+        .map_err(|error| format!("Չհաջողվեց ստեղծել ժամանակավոր ֆայլը։ {error}"))?;
+    write_archive_to(temporary.as_file_mut(), &mut workbook, &limits)?;
+
+    finalize_temporary_archive(temporary, &target_path, limits)
+}
+
+fn write_archive_to<W: Write + Seek>(
+    writer: W,
+    workbook: &mut Workbook,
+    limits: &Limits,
+) -> Result<W, String> {
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut image_count = 0usize;
+    let mut total_image_bytes = 0u64;
+    let mut archive = ZipWriter::new(writer);
+    package_images(
+        workbook,
+        &mut archive,
+        options,
+        limits,
+        &mut image_count,
+        &mut total_image_bytes,
+    )?;
+    let mut json_writer = LimitedJsonWriter::new(limits.workbook_json_bytes);
+    if let Err(error) = serde_json::to_writer_pretty(&mut json_writer, workbook) {
+        return Err(if json_writer.exceeded {
+            "workbook.json-ի չափը գերազանցում է թույլատրելի սահմանը։".to_string()
+        } else {
+            format!("Չհաջողվեց ձևավորել տետրի JSON-ը։ {error}")
+        });
+    }
+    let json_bytes = json_writer.into_inner();
+    if (json_bytes.len() as u64)
+        .checked_add(total_image_bytes)
+        .is_none_or(|total| total > limits.total_uncompressed_bytes)
+    {
+        return Err(
+            "Պահպանվող տետրի ապասեղմված չափը գերազանցում է թույլատրելի սահմանը։".to_string(),
+        );
+    }
+    if 1 + image_count > limits.zip_entries {
+        return Err("Պահպանվող տետրում ֆայլերի քանակը գերազանցում է սահմանը։".to_string());
+    }
+
+    archive
+        .start_file(WORKBOOK_ENTRY, options)
+        .map_err(|error| format!("Չհաջողվեց ավելացնել workbook.json-ը։ {error}"))?;
+    archive
+        .write_all(&json_bytes)
+        .map_err(|error| format!("Չհաջողվեց գրել workbook.json-ը։ {error}"))?;
+    archive
+        .finish()
+        .map_err(|error| format!("Չհաջողվեց ավարտել ZIP արխիվը։ {error}"))
+}
+
+fn prepare_workbook(mut workbook: Value, limits: &Limits) -> Result<Workbook, String> {
     let document = workbook
         .as_object_mut()
         .ok_or_else(|| "Տետրի տվյալները պետք է լինեն JSON օբյեկտ։".to_string())?;
@@ -343,60 +415,17 @@ fn write_workbook_archive_with_limits(
         "formatVersion".to_string(),
         Value::from(CURRENT_FORMAT_VERSION),
     );
-    let mut workbook: Workbook = serde_json::from_value(workbook)
+    let workbook: Workbook = serde_json::from_value(workbook)
         .map_err(|error| format!("Տետրի տվյալները սխալ ձևաչափ ունեն։ {error}"))?;
-    validate_workbook(&workbook, &limits)?;
-    let parent = target_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let mut temporary = NamedTempFile::new_in(parent)
-        .map_err(|error| format!("Չհաջողվեց ստեղծել ժամանակավոր ֆայլը։ {error}"))?;
-    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    let mut image_count = 0usize;
-    let mut total_image_bytes = 0u64;
-    {
-        let mut archive = ZipWriter::new(temporary.as_file_mut());
-        package_images(
-            &mut workbook,
-            &mut archive,
-            options,
-            &limits,
-            &mut image_count,
-            &mut total_image_bytes,
-        )?;
-        let mut json_writer = LimitedJsonWriter::new(limits.workbook_json_bytes);
-        if let Err(error) = serde_json::to_writer_pretty(&mut json_writer, &workbook) {
-            return Err(if json_writer.exceeded {
-                "workbook.json-ի չափը գերազանցում է թույլատրելի սահմանը։".to_string()
-            } else {
-                format!("Չհաջողվեց ձևավորել տետրի JSON-ը։ {error}")
-            });
-        }
-        let json_bytes = json_writer.into_inner();
-        if (json_bytes.len() as u64)
-            .checked_add(total_image_bytes)
-            .is_none_or(|total| total > limits.total_uncompressed_bytes)
-        {
-            return Err(
-                "Պահպանվող տետրի ապասեղմված չափը գերազանցում է թույլատրելի սահմանը։".to_string(),
-            );
-        }
-        if 1 + image_count > limits.zip_entries {
-            return Err("Պահպանվող տետրում ֆայլերի քանակը գերազանցում է սահմանը։".to_string());
-        }
+    validate_workbook(&workbook, limits)?;
+    Ok(workbook)
+}
 
-        archive
-            .start_file(WORKBOOK_ENTRY, options)
-            .map_err(|error| format!("Չհաջողվեց ավելացնել workbook.json-ը։ {error}"))?;
-        archive
-            .write_all(&json_bytes)
-            .map_err(|error| format!("Չհաջողվեց գրել workbook.json-ը։ {error}"))?;
-        archive
-            .finish()
-            .map_err(|error| format!("Չհաջողվեց ավարտել ZIP արխիվը։ {error}"))?;
-    }
-
+fn finalize_temporary_archive(
+    temporary: NamedTempFile,
+    target_path: &Path,
+    limits: Limits,
+) -> Result<(), String> {
     let archive_size = temporary
         .as_file()
         .metadata()
@@ -410,10 +439,35 @@ fn write_workbook_archive_with_limits(
         .as_file()
         .sync_all()
         .map_err(|error| format!("Չհաջողվեց պահպանել ZIP արխիվը սկավառակի վրա։ {error}"))?;
+    validate_temporary_archive(&temporary, limits)?;
     temporary
-        .persist(&target_path)
+        .persist(target_path)
         .map_err(|error| format!("Չհաջողվեց վերջնականացնել ZIP ֆայլը։ {}", error.error))?;
+    if let Some(parent) = target_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        if let Err(error) = sync_parent_directory(parent) {
+            eprintln!("Չհաջողվեց պահպանել պանակը սկավառակի վրա։ {error}");
+        }
+    }
+    Ok(())
+}
 
+fn validate_temporary_archive(temporary: &NamedTempFile, limits: Limits) -> Result<(), String> {
+    let file = temporary
+        .reopen()
+        .map_err(|error| format!("Չհաջողվեց վերընթերցել ժամանակավոր արխիվը։ {error}"))?;
+    read_workbook_archive_file(file, limits).map(|_| ())
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(parent: &Path) -> io::Result<()> {
+    File::open(parent)?.sync_all()
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_parent: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -1165,5 +1219,170 @@ mod tests {
 
         assert!(error.contains("workbook.json"));
         assert!(!path.exists());
+    }
+
+    #[derive(Debug)]
+    struct FailingWriter {
+        inner: std::io::Cursor<Vec<u8>>,
+        remaining: usize,
+    }
+
+    impl Write for FailingWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::new(io::ErrorKind::Other, "disk full"));
+            }
+            let allowed = buffer.len().min(self.remaining);
+            let written = self.inner.write(&buffer[..allowed])?;
+            self.remaining -= written;
+            if written < buffer.len() {
+                return Err(io::Error::new(io::ErrorKind::Other, "disk full"));
+            }
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl Seek for FailingWriter {
+        fn seek(&mut self, position: io::SeekFrom) -> io::Result<u64> {
+            self.inner.seek(position)
+        }
+    }
+
+    #[test]
+    fn zip_write_error_is_reported() {
+        let mut workbook = prepare_workbook(minimal_workbook(), &DEFAULT_LIMITS).unwrap();
+        let writer = FailingWriter {
+            inner: std::io::Cursor::new(Vec::new()),
+            remaining: 0,
+        };
+
+        let error = write_archive_to(writer, &mut workbook, &DEFAULT_LIMITS).unwrap_err();
+
+        assert!(error.contains("Չհաջողվեց ավելացնել"), "{error}");
+    }
+
+    #[test]
+    fn write_failure_keeps_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        std::fs::write(&path, b"old").unwrap();
+        let limits = Limits {
+            workbook_json_bytes: 16,
+            ..DEFAULT_LIMITS
+        };
+
+        let error = write_workbook_archive_with_limits(
+            path.to_string_lossy().into_owned(),
+            minimal_workbook(),
+            limits,
+        )
+        .unwrap_err();
+
+        assert!(error.contains("workbook.json"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
+    }
+
+    #[test]
+    fn temporary_validation_failure_keeps_existing_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().join("lesson.pdw");
+        std::fs::write(&target, b"old").unwrap();
+        let mut temporary = NamedTempFile::new_in(directory.path()).unwrap();
+        {
+            let mut archive = ZipWriter::new(temporary.as_file_mut());
+            let options =
+                SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+            archive.start_file("workbook.json", options).unwrap();
+            archive.write_all(b"{}").unwrap();
+            archive.finish().unwrap();
+        }
+
+        let error = finalize_temporary_archive(temporary, &target, DEFAULT_LIMITS).unwrap_err();
+
+        assert!(!error.is_empty());
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+    }
+
+    #[test]
+    fn save_replaces_existing_file_with_valid_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        std::fs::write(&path, b"old").unwrap();
+
+        write_workbook_archive(path.to_string_lossy().into_owned(), minimal_workbook()).unwrap();
+
+        let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(opened["title"], "Դաս");
+        assert_eq!(opened["solved"], false);
+    }
+
+    #[test]
+    fn concurrent_saves_leave_valid_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        let path_string = path.to_string_lossy().into_owned();
+
+        let handles: Vec<_> = (0..4)
+            .map(|index| {
+                let path = path_string.clone();
+                std::thread::spawn(move || {
+                    let mut workbook = minimal_workbook();
+                    workbook["title"] = json!(format!("Դաս {index}"));
+                    write_workbook_archive(path, workbook).unwrap();
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        let opened = read_workbook_archive(path_string).unwrap();
+        let title = opened["title"].as_str().unwrap();
+        assert!(title.starts_with("Դաս "), "{title}");
+    }
+
+    #[test]
+    fn grid_and_grade_round_trip_in_archive() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        let workbook = json!({
+            "title": "Դաս",
+            "description": "",
+            "solved": true,
+            "teacher": {
+                "name": "Ուսուցիչ",
+                "email": "teacher@example.com"
+            },
+            "verified": {
+                "grade": 15
+            },
+            "created-at": "2026-11-11",
+            "assignments": [{
+                "problem": [{
+                    "type": "squared",
+                    "content": {
+                        "version": 2,
+                        "rows": 2,
+                        "columns": 2,
+                        "cells": "1 \n+ ",
+                        "borders": []
+                    }
+                }],
+                "solution": []
+            }]
+        });
+
+        write_workbook_archive(path.to_string_lossy().into_owned(), workbook).unwrap();
+
+        let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
+        assert_eq!(opened["solved"], true);
+        assert_eq!(opened["verified"]["grade"], 15);
+        let grid = &opened["assignments"][0]["problem"][0]["content"];
+        assert_eq!(grid["version"], 2);
+        assert_eq!(grid["cells"], "1 \n+ ");
     }
 }

@@ -190,6 +190,12 @@ fn build_app_menu<M: Manager<Wry>>(
         "Պահպանել",
         include_bytes!("../icons/menu/save.png"),
     )?;
+    let save_as_item = icon_menu_item(
+        manager,
+        "save-as",
+        "Պահպանել որպես…",
+        include_bytes!("../icons/menu/save.png"),
+    )?;
     let settings_item = icon_menu_item(
         manager,
         "settings",
@@ -214,6 +220,7 @@ fn build_app_menu<M: Manager<Wry>>(
             &create_item,
             &open_item,
             &save_item,
+            &save_as_item,
             &separator,
             &settings_item,
             &exit_item,
@@ -224,6 +231,7 @@ fn build_app_menu<M: Manager<Wry>>(
         vec![
             &open_item,
             &save_item,
+            &save_as_item,
             &separator,
             &settings_item,
             &exit_item,
@@ -332,6 +340,10 @@ pub fn run() {
             } else if event.id() == "save" {
                 if let Err(error) = app.emit("save-workbook", ()) {
                     eprintln!("Failed to start workbook save: {error}");
+                }
+            } else if event.id() == "save-as" {
+                if let Err(error) = app.emit("save-workbook-as", ()) {
+                    eprintln!("Failed to start workbook save as: {error}");
                 }
             } else if event.id() == "open" {
                 if let Err(error) = app.emit("open-workbook", ()) {
