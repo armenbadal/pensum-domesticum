@@ -1,3 +1,5 @@
+#[cfg(target_os = "windows")]
+use serde::Serialize;
 use serde_json::Value;
 use std::{
     ffi::OsStr,
