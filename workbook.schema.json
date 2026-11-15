@@ -121,7 +121,7 @@
   "type": "object",
   "properties": {
     "formatVersion": {
-      "const": 1
+      "const": 2
     },
     "solved": {
       "type": "boolean"
@@ -141,14 +141,14 @@
     },
     "verified": {
       "type": "object",
+      "description": "Դասատուի ժպտիկով գնահատականը։ Ժպտիկը ընտրվում է հինգ արժեքից՝ ցածրից բարձր։",
       "properties": {
-        "grade": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 20
+        "emoji": {
+          "enum": ["😟", "😐", "🙂", "😊", "🤩"]
         }
       },
-      "required": ["grade"]
+      "required": ["emoji"],
+      "additionalProperties": false
     },
     "created-at": {
       "type": "string",

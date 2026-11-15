@@ -35,7 +35,52 @@ pub(crate) struct Student {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct Verified {
-    pub(crate) grade: u8,
+    pub(crate) emoji: String,
+}
+
+/// Դասատուի ընտրած ժպտիկները՝ ցածրից բարձր։ Միայն այս արժեքները թույլատրվում են։
+pub(crate) const RATING_EMOJIS: [&str; 5] = ["😟", "😐", "🙂", "😊", "🤩"];
+
+/// Ժպտիկ, որ ընտրվում է 1–20 գնահատականից ձևաչափ 1-ի տետրերը բացելիս։
+pub(crate) fn rating_emoji_from_grade(grade: u8) -> &'static str {
+    match grade {
+        0..=5 => RATING_EMOJIS[0],
+        6..=10 => RATING_EMOJIS[1],
+        11..=14 => RATING_EMOJIS[2],
+        15..=17 => RATING_EMOJIS[3],
+        _ => RATING_EMOJIS[4],
+    }
+}
+
+/// Ձևաչափ 1-ի տետրը (`verified.grade`) վերածում է ձևաչափ 2-ի (`verified.emoji`)։
+/// Փոխակերպումից հետո տվյալները միշտ ունեն ընթացիկ ձևաչափը։
+pub(crate) fn migrate_legacy_workbook(value: &mut serde_json::Value) -> Result<(), String> {
+    let Some(document) = value.as_object_mut() else {
+        return Ok(());
+    };
+    if document
+        .get("formatVersion")
+        .and_then(serde_json::Value::as_u64)
+        != Some(1)
+    {
+        return Ok(());
+    }
+    if let Some(verified) = document.get("verified") {
+        let grade = verified
+            .get("grade")
+            .and_then(serde_json::Value::as_u64)
+            .filter(|grade| (1..=20).contains(grade))
+            .ok_or_else(|| "Տետրի գնահատականը պետք է լինի 1-ից 20 միջակայքում։".to_string())?;
+        document.insert(
+            "verified".to_string(),
+            serde_json::json!({ "emoji": rating_emoji_from_grade(grade as u8) }),
+        );
+    }
+    document.insert(
+        "formatVersion".to_string(),
+        serde_json::Value::from(CURRENT_FORMAT_VERSION),
+    );
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -94,8 +139,8 @@ pub(crate) fn validate_workbook(workbook: &Workbook, limits: &Limits) -> Result<
         if !workbook.solved {
             return Err("Գնահատականը թույլատրվում է միայն լուծված տետրում։".to_string());
         }
-        if !(1..=20).contains(&verified.grade) {
-            return Err("Տետրի գնահատականը պետք է լինի 1-ից 20 միջակայքում։".to_string());
+        if !RATING_EMOJIS.contains(&verified.emoji.as_str()) {
+            return Err("Տետրի ժպտիկով գնահատականը սխալ է։".to_string());
         }
     }
 

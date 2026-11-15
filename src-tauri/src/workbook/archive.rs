@@ -14,7 +14,7 @@ use super::images::{
     JPEG_MIME, PNG_MIME, extension_for_mime, supported_image_mime, validate_image_bytes,
 };
 use super::limits::{CURRENT_FORMAT_VERSION, DEFAULT_LIMITS, Limits};
-use super::model::{ContentBlock, Workbook, validate_workbook};
+use super::model::{ContentBlock, Workbook, migrate_legacy_workbook, validate_workbook};
 
 const WORKBOOK_ENTRY: &str = "workbook.json";
 
@@ -121,7 +121,10 @@ fn read_workbook_archive_file(file: File, limits: Limits) -> Result<Value, Strin
         String::from_utf8(bytes)
             .map_err(|error| format!("workbook.json-ը վավեր UTF-8 տեքստ չէ։ {error}"))?
     };
-    let mut workbook: Workbook = serde_json::from_str(&workbook_json)
+    let mut document: Value = serde_json::from_str(&workbook_json)
+        .map_err(|error| format!("workbook.json-ը վավեր տետրի JSON չէ։ {error}"))?;
+    migrate_legacy_workbook(&mut document)?;
+    let mut workbook: Workbook = serde_json::from_value(document)
         .map_err(|error| format!("workbook.json-ը վավեր տետրի JSON չէ։ {error}"))?;
     validate_workbook(&workbook, &limits)?;
 
@@ -590,6 +593,7 @@ fn decode_image_data_url(
 
 #[cfg(test)]
 mod tests {
+    use super::super::model::rating_emoji_from_grade;
     use super::*;
     use serde_json::json;
     use std::fs::File;
@@ -655,7 +659,7 @@ mod tests {
             let mut entry = archive.by_name("workbook.json").unwrap();
             serde_json::from_reader(&mut entry).unwrap()
         };
-        assert_eq!(document["formatVersion"], 1);
+        assert_eq!(document["formatVersion"], 2);
         assert_eq!(document["solved"], false);
         assert_eq!(document["teacher"]["name"], "Ուսուցիչ");
         assert!(document.get("author").is_none());
@@ -822,7 +826,7 @@ mod tests {
                 "class": "9-րդ դասարան"
             },
             "verified": {
-                "grade": 18
+                "emoji": "🤩"
             },
             "created-at": "2026-11-11",
             "assignments": [{
@@ -845,7 +849,8 @@ mod tests {
         assert_eq!(opened["teacher"]["name"], "Ուսուցիչ");
         assert_eq!(opened["student"]["name"], "Սովորող");
         assert_eq!(opened["student"]["class"], "9-րդ դասարան");
-        assert_eq!(opened["verified"]["grade"], 18);
+        assert_eq!(opened["verified"]["emoji"], "🤩");
+        assert!(opened["verified"].get("grade").is_none());
         assert_eq!(opened["assignments"][0]["teacher-comment"], "Լավ աշխատանք։");
         assert_eq!(opened["solved"], true);
     }
@@ -873,7 +878,7 @@ mod tests {
         );
 
         let valid: Workbook = serde_json::from_value(json!({
-            "formatVersion": 1,
+            "formatVersion": 2,
             "solved": false,
             "title": "Դաս",
             "description": "",
@@ -903,7 +908,7 @@ mod tests {
                 "email": "teacher@example.com"
             },
             "verified": {
-                "grade": 18
+                "emoji": "😊"
             },
             "created-at": "2026-11-11",
             "assignments": []
@@ -984,7 +989,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("lesson.pdw");
         let workbook = json!({
-            "formatVersion": 2,
+            "formatVersion": 3,
             "solved": false,
             "title": "Դաս",
             "description": "",
@@ -1387,7 +1392,7 @@ mod tests {
                 "email": "teacher@example.com"
             },
             "verified": {
-                "grade": 15
+                "emoji": "😊"
             },
             "created-at": "2026-11-11",
             "assignments": [{
@@ -1409,9 +1414,89 @@ mod tests {
 
         let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
         assert_eq!(opened["solved"], true);
-        assert_eq!(opened["verified"]["grade"], 15);
+        assert_eq!(opened["verified"]["emoji"], "😊");
         let grid = &opened["assignments"][0]["problem"][0]["content"];
         assert_eq!(grid["version"], 2);
         assert_eq!(grid["cells"], "1 \n+ ");
+    }
+
+    #[test]
+    fn legacy_grade_is_migrated_to_emoji_on_open() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        let workbook = json!({
+            "formatVersion": 1,
+            "solved": true,
+            "title": "Դաս",
+            "description": "",
+            "teacher": {
+                "name": "Ուսուցիչ",
+                "email": "teacher@example.com"
+            },
+            "verified": {
+                "grade": 12
+            },
+            "created-at": "2026-11-11",
+            "assignments": []
+        });
+        write_test_archive(
+            &path,
+            &[(
+                "workbook.json",
+                serde_json::to_vec(&workbook).unwrap().as_slice(),
+            )],
+        );
+
+        let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
+
+        assert_eq!(opened["formatVersion"], 2);
+        assert_eq!(opened["verified"]["emoji"], "🙂");
+        assert!(opened["verified"].get("grade").is_none());
+    }
+
+    #[test]
+    fn legacy_grade_bands_map_to_emoji() {
+        assert_eq!(rating_emoji_from_grade(1), "😟");
+        assert_eq!(rating_emoji_from_grade(5), "😟");
+        assert_eq!(rating_emoji_from_grade(6), "😐");
+        assert_eq!(rating_emoji_from_grade(10), "😐");
+        assert_eq!(rating_emoji_from_grade(11), "🙂");
+        assert_eq!(rating_emoji_from_grade(14), "🙂");
+        assert_eq!(rating_emoji_from_grade(15), "😊");
+        assert_eq!(rating_emoji_from_grade(17), "😊");
+        assert_eq!(rating_emoji_from_grade(18), "🤩");
+        assert_eq!(rating_emoji_from_grade(20), "🤩");
+    }
+
+    #[test]
+    fn legacy_grade_outside_range_is_rejected() {
+        let mut document = json!({
+            "formatVersion": 1,
+            "verified": { "grade": 21 }
+        });
+
+        assert!(migrate_legacy_workbook(&mut document).is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_rating_emoji() {
+        let workbook: Workbook = serde_json::from_value(json!({
+            "formatVersion": 2,
+            "solved": true,
+            "title": "Դաս",
+            "description": "",
+            "teacher": {
+                "name": "Ուսուցիչ",
+                "email": "teacher@example.com"
+            },
+            "verified": {
+                "emoji": "😀"
+            },
+            "created-at": "2026-11-11",
+            "assignments": []
+        }))
+        .unwrap();
+
+        assert!(validate_workbook(&workbook, &DEFAULT_LIMITS).is_err());
     }
 }

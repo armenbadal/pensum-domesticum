@@ -5,7 +5,8 @@ const assignmentList = document.querySelector("#assignment-list");
 const status = document.querySelector("#status");
 const workbookDescriptionInput = document.querySelector("#workbook-description");
 const verificationSection = document.querySelector("#verification-section");
-const workbookGradeInput = document.querySelector("#workbook-grade");
+const ratingPicker = document.querySelector("#rating-picker");
+const RATING_EMOJIS = Object.freeze(["😟", "😐", "🙂", "😊", "🤩"]);
 const settingsDialog = document.querySelector("#settings-dialog");
 const aboutDialog = document.querySelector("#about-dialog");
 const aboutVersion = document.querySelector("#about-version");
@@ -93,6 +94,7 @@ let revision = 0;
 let savedRevision = 0;
 let saveInProgress = false;
 let currentWorkbookPath = null;
+let workbookRating = "";
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
 let workbookVerified = false;
@@ -127,8 +129,24 @@ function updateSenderInfo() {
 function updateReviewControls() {
   const canEditReview = workbookSolved && userMode === USER_MODES.TEACHER;
   verificationSection.hidden = !workbookSolved;
-  workbookGradeInput.disabled = !canEditReview;
+  renderRatingPicker(canEditReview);
 }
+
+function renderRatingPicker(enabled) {
+  ratingPicker.querySelectorAll("button").forEach(button => {
+    button.setAttribute("aria-checked", String(button.dataset.emoji === workbookRating));
+    button.disabled = !enabled;
+  });
+}
+
+ratingPicker.addEventListener("click", event => {
+  const button = event.target.closest("button[data-emoji]");
+  if (!button || button.disabled) return;
+  // Նույն ժպտիկին կրկին սեղմելը ընտրությունը հանում է։
+  workbookRating = workbookRating === button.dataset.emoji ? "" : button.dataset.emoji;
+  renderRatingPicker(true);
+  clearOutput();
+});
 
 function updateSettingsProfileFields() {
   const isTeacher = modeSelect.value === USER_MODES.TEACHER;
@@ -325,7 +343,7 @@ async function createWorkbook() {
     workbookVerified = false;
     workbookTeacher = null;
     workbookStudent = null;
-    workbookGradeInput.value = "";
+    workbookRating = "";
     currentWorkbookPath = null;
     markWorkbookSaved();
     updateReviewControls();
@@ -359,7 +377,7 @@ function buildWorkbookFileName(documentData) {
   if (documentData.solved) {
     parts.push("լուծված");
   }
-  if (documentData.solved && documentData.verified?.grade !== undefined) {
+  if (documentData.solved && documentData.verified !== undefined) {
     parts.push("գնահատված");
   }
   return `${parts.join("-")}.pdw`;
@@ -892,7 +910,6 @@ function collectAssignments() {
 }
 
 function createDocument() {
-  const grade = workbookGradeInput.value;
   return {
     title: form.elements.title.value,
     description: workbookDescriptionInput.value,
@@ -905,7 +922,7 @@ function createDocument() {
     "created-at": getLocalDateString(),
     solved: userMode === USER_MODES.STUDENT || workbookSolved,
     assignments: collectAssignments(),
-    ...(grade === "" ? {} : { verified: { grade: Number(grade) } })
+    ...(workbookRating === "" ? {} : { verified: { emoji: workbookRating } })
   };
 }
 
@@ -913,7 +930,7 @@ function validateWorkbookDocument(documentData) {
   if (!documentData || typeof documentData !== "object" || Array.isArray(documentData)) {
     throw new Error("Տետրի տվյալները սխալ ձևաչափ ունեն։");
   }
-  if (documentData.formatVersion !== 1) {
+  if (documentData.formatVersion !== 2) {
     throw new Error("Տետրի ZIP ձևաչափի տարբերակը չի աջակցվում։");
   }
   if (
@@ -937,9 +954,7 @@ function validateWorkbookDocument(documentData) {
       !documentData.verified ||
       typeof documentData.verified !== "object" ||
       Array.isArray(documentData.verified) ||
-      !Number.isInteger(documentData.verified.grade) ||
-      documentData.verified.grade < 1 ||
-      documentData.verified.grade > 20
+      !RATING_EMOJIS.includes(documentData.verified.emoji)
     )) ||
     typeof documentData["created-at"] !== "string"
   ) {
@@ -982,7 +997,7 @@ function loadWorkbookDocument(documentData) {
   hasLoadedWorkbook = true;
   workbookSolved = documentData.solved;
   workbookVerified = documentData.verified !== undefined;
-  workbookGradeInput.value = documentData.verified ? String(documentData.verified.grade) : "";
+  workbookRating = documentData.verified?.emoji ?? "";
   assignmentList.replaceChildren(addAssignmentButton);
   documentData.assignments.forEach(createAssignment);
   assignmentList.querySelectorAll(".content-block-text textarea").forEach(textarea => {

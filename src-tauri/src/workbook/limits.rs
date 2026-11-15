@@ -12,7 +12,7 @@ pub(crate) struct Limits {
     pub(crate) image_pixels: u64,
 }
 
-pub(crate) const CURRENT_FORMAT_VERSION: u8 = 1;
+pub(crate) const CURRENT_FORMAT_VERSION: u8 = 2;
 
 pub(crate) const DEFAULT_LIMITS: Limits = Limits {
     archive_bytes: 50 * 1024 * 1024,
