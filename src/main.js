@@ -497,7 +497,7 @@ function createSquaredEditor(initialContent, editable = true) {
   if (initialContent && typeof initialContent === "object" && !Array.isArray(initialContent)) {
     grid.value = JSON.stringify(initialContent);
   }
-  grid.addEventListener("input", clearOutput);
+  grid.addEventListener("input", () => clearOutput());
   scroll.append(grid);
   return scroll;
 }
@@ -706,7 +706,7 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
     title,
     removeButton
   );
-  removeButton.addEventListener("click", clearOutput);
+  removeButton.addEventListener("click", () => clearOutput());
 
   const sections = document.createElement("div");
   sections.className = "assignment-sections";

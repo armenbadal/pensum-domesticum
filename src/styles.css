@@ -22,7 +22,7 @@
 body {
   min-width: 320px;
   margin: 0;
-  padding-bottom: 42px;
+  padding-bottom: 32px;
 }
 
 button,
@@ -485,15 +485,16 @@ textarea {
   z-index: 10;
   display: flex;
   align-items: center;
-  min-height: 42px;
+  min-height: 32px;
   margin: 0;
-  padding: 8px 24px;
+  padding: 4px 24px;
   border-top: 1px solid var(--line);
   background: white;
   box-shadow: 0 -4px 12px rgb(34 54 93 / 6%);
   color: var(--muted);
   font-size: .7rem;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .status-error {

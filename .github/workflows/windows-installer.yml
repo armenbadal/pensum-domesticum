@@ -51,6 +51,7 @@ jobs:
           projectPath: src-tauri
           tauriScript: cargo tauri
           args: --bundles nsis
+          releaseAssetNamePattern: '[mainBinaryName]_[version]_[arch][setup].[ext]'
           tagName: ${{ github.ref_name }}
           releaseName: Pensum Domesticum ${{ github.ref_name }}
           releaseBody: Windows installer for the current user.
