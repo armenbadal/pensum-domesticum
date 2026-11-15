@@ -459,8 +459,19 @@ async function openWorkbookFromPath(path) {
   if (!(await confirmDiscardChanges("Բացե՞լ ընտրված տետրը։"))) return;
   const documentData = await window.__TAURI__.core.invoke("open_workbook", { path });
   loadWorkbookDocument(documentData);
-  currentWorkbookPath = path;
+  currentWorkbookPath = isOwnWorkbook(documentData) ? path : null;
   await syncNativeMenuMode();
+}
+
+// Ֆայլը կարելի է պահել նույն տեղում միայն, եթե այն ստեղծել է ընթացիկ օգտվողը։
+// Ուրիշի ֆայլը (օր․ ուսուցչի տետրը սովորողի համար կամ սովորողի լուծումը ուսուցչի համար)
+// միշտ պահվում է որպես նոր ֆայլ, որպեսզի օրիգինալը չվերագրվի։
+function isOwnWorkbook(documentData) {
+  if (userMode === USER_MODES.TEACHER) {
+    return documentData.student === undefined;
+  }
+  return documentData.student !== undefined
+    && documentData.student.email === studentDetails.email;
 }
 
 async function openWorkbook() {
@@ -513,6 +524,10 @@ async function listenForPendingWorkbookFiles() {
 }
 
 async function exitWorkbook() {
+  if (saveInProgress) {
+    showStatus("Պահպանումն ընթացքի մեջ է․ սպասիր, ապա փակիր ծրագիրը։", "error");
+    return;
+  }
   try {
     if (!(await confirmDiscardChanges("Դո՞ւրս գալ ծրագրից։"))) return;
     await window.__TAURI__.core.invoke("exit_app");
@@ -524,6 +539,7 @@ async function exitWorkbook() {
 async function listenForExitMenu() {
   try {
     await window.__TAURI__.event.listen("exit-workbook", exitWorkbook);
+    await window.__TAURI__.event.listen("close-requested", exitWorkbook);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել ելքի մենյուն։ ${error.message}`, "error");
   }

@@ -440,19 +440,32 @@ fn finalize_temporary_archive(
         .sync_all()
         .map_err(|error| format!("Չհաջողվեց պահպանել ZIP արխիվը սկավառակի վրա։ {error}"))?;
     validate_temporary_archive(&temporary, limits)?;
+    preserve_target_permissions(&temporary, target_path);
     temporary
         .persist(target_path)
         .map_err(|error| format!("Չհաջողվեց վերջնականացնել ZIP ֆայլը։ {}", error.error))?;
     if let Some(parent) = target_path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
+        && let Err(error) = sync_parent_directory(parent)
     {
-        if let Err(error) = sync_parent_directory(parent) {
-            eprintln!("Չհաջողվեց պահպանել պանակը սկավառակի վրա։ {error}");
-        }
+        eprintln!("Չհաջողվեց պահպանել պանակը սկավառակի վրա։ {error}");
     }
     Ok(())
 }
+
+#[cfg(unix)]
+fn preserve_target_permissions(temporary: &NamedTempFile, target_path: &Path) {
+    let Ok(metadata) = std::fs::metadata(target_path) else {
+        return;
+    };
+    if let Err(error) = temporary.as_file().set_permissions(metadata.permissions()) {
+        eprintln!("Չհաջողվեց պահպանել ֆայլի թույլտվությունները։ {error}");
+    }
+}
+
+#[cfg(not(unix))]
+fn preserve_target_permissions(_temporary: &NamedTempFile, _target_path: &Path) {}
 
 fn validate_temporary_archive(temporary: &NamedTempFile, limits: Limits) -> Result<(), String> {
     let file = temporary
@@ -1230,13 +1243,13 @@ mod tests {
     impl Write for FailingWriter {
         fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
             if self.remaining == 0 {
-                return Err(io::Error::new(io::ErrorKind::Other, "disk full"));
+                return Err(io::Error::other("disk full"));
             }
             let allowed = buffer.len().min(self.remaining);
             let written = self.inner.write(&buffer[..allowed])?;
             self.remaining -= written;
             if written < buffer.len() {
-                return Err(io::Error::new(io::ErrorKind::Other, "disk full"));
+                return Err(io::Error::other("disk full"));
             }
             Ok(written)
         }
@@ -1318,6 +1331,22 @@ mod tests {
         let opened = read_workbook_archive(path.to_string_lossy().into_owned()).unwrap();
         assert_eq!(opened["title"], "Դաս");
         assert_eq!(opened["solved"], false);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_preserves_existing_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("lesson.pdw");
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_workbook_archive(path.to_string_lossy().into_owned(), minimal_workbook()).unwrap();
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644);
     }
 
     #[test]

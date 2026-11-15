@@ -38,10 +38,10 @@ pub(crate) fn validate_image_bytes(
             );
         }
     };
-    if let Some(expected_mime) = expected_mime {
-        if expected_mime != mime {
-            return Err("Նկարի բովանդակությունը չի համապատասխանում նշված ձևաչափին։".to_string());
-        }
+    if let Some(expected_mime) = expected_mime
+        && expected_mime != mime
+    {
+        return Err("Նկարի բովանդակությունը չի համապատասխանում նշված ձևաչափին։".to_string());
     }
 
     let (width, height) = image::ImageReader::with_format(Cursor::new(bytes), format)

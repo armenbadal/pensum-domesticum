@@ -18,6 +18,6 @@
 
 ## Validation
 
-- Check frontend syntax with `node --check src/main.js` and `node --check src/components/math-grid/math-grid.js`.
+- Check frontend syntax with `node --input-type=module --check < src/main.js` and `node --input-type=module --check < src/components/math-grid/math-grid.js`. Plain `node --check file.js` treats the files as CommonJS on recent Node versions and reports false errors for the private class members in `math-grid.js`.
 - Check Rust formatting with `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check`.
 - Run backend tests with `cargo test --manifest-path src-tauri/Cargo.toml`.

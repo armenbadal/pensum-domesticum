@@ -1,4 +1,3 @@
-use serde::Serialize;
 use serde_json::Value;
 use std::{
     ffi::OsStr,
@@ -7,7 +6,8 @@ use std::{
 };
 use tauri::image::Image;
 use tauri::menu::{IconMenuItem, IsMenuItem, Menu, PredefinedMenuItem, Submenu};
-use tauri::{AppHandle, Emitter, Manager, State, Wry};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent, Wry};
+#[cfg(target_os = "windows")]
 use tauri_plugin_updater::UpdaterExt;
 
 mod workbook;
@@ -60,6 +60,7 @@ fn exit_app(app: AppHandle) {
     app.exit(0);
 }
 
+#[cfg(target_os = "windows")]
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateProgress {
@@ -313,10 +314,10 @@ pub fn run() {
                 }
             }
 
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(error) = window.set_focus() {
-                    eprintln!("Չհաջողվեց ակտիվացնել ծրագրի պատուհանը։ {error}");
-                }
+            if let Some(window) = app.get_webview_window("main")
+                && let Err(error) = window.set_focus()
+            {
+                eprintln!("Չհաջողվեց ակտիվացնել ծրագրի պատուհանը։ {error}");
             }
         }));
     }
@@ -349,9 +350,20 @@ pub fn run() {
                 if let Err(error) = app.emit("open-workbook", ()) {
                     eprintln!("Failed to start workbook open: {error}");
                 }
-            } else if event.id() == "exit" {
-                if let Err(error) = app.emit("exit-workbook", ()) {
-                    eprintln!("Failed to request application exit: {error}");
+            } else if event.id() == "exit"
+                && let Err(error) = app.emit("exit-workbook", ())
+            {
+                eprintln!("Failed to request application exit: {error}");
+            }
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                api.prevent_close();
+                if let Err(error) = window.emit("close-requested", ()) {
+                    eprintln!("Չհաջողվեց խնդրել փակումը։ {error}");
+                    window.app_handle().exit(0);
                 }
             }
         })
