@@ -14,7 +14,11 @@ const profileNameLabel = document.querySelector("#profile-name-label");
 const profileEmailLabel = document.querySelector("#profile-email-label");
 const profileNameInput = document.querySelector("#profile-name");
 const profileEmailInput = document.querySelector("#profile-email");
+const profileClassField = document.querySelector("#profile-class-field");
+const profileClassInput = document.querySelector("#profile-class");
 const addAssignmentButton = document.querySelector("#add-assignment");
+const senderSection = document.querySelector("#sender-section");
+const senderName = document.querySelector("#sender-name");
 
 const USER_MODES = Object.freeze({
   TEACHER: "teacher",
@@ -23,6 +27,8 @@ const USER_MODES = Object.freeze({
 const USER_MODE_STORAGE_KEY = "pensum-user-mode";
 const TEACHER_DETAILS_STORAGE_KEY = "pensum-author-details";
 const STUDENT_DETAILS_STORAGE_KEY = "pensum-student-details";
+const MAX_GRID_ROWS = 200;
+const MAX_GRID_COLUMNS = 200;
 
 function showStatus(message, type = "") {
   status.textContent = message;
@@ -39,29 +45,37 @@ function loadUserMode() {
   }
 }
 
-function loadProfileDetails(storageKey, profileName) {
+function loadProfileDetails(storageKey, profileName, includeClass = false) {
+  const emptyDetails = includeClass
+    ? { name: "", email: "", class: "" }
+    : { name: "", email: "" };
   try {
     const savedDetails = localStorage.getItem(storageKey);
-    if (!savedDetails) return { name: "", email: "" };
+    if (!savedDetails) return emptyDetails;
 
     const details = JSON.parse(savedDetails);
     if (
       !details ||
       typeof details.name !== "string" ||
-      typeof details.email !== "string"
+      typeof details.email !== "string" ||
+      (details.class !== undefined && typeof details.class !== "string")
     ) {
       throw new Error(`Պահպանված ${profileName} տվյալները սխալ ձևաչափ ունեն։`);
     }
-    return { name: details.name, email: details.email };
+    return {
+      name: details.name,
+      email: details.email,
+      ...(includeClass ? { class: details.class ?? "" } : {})
+    };
   } catch (error) {
     showStatus(`Չհաջողվեց կարդալ ${profileName} կարգավորումները։ ${error.message}`, "error");
-    return { name: "", email: "" };
+    return emptyDetails;
   }
 }
 
 let userMode = loadUserMode();
 let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
-let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի");
+let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի", true);
 let hasUnsavedChanges = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
@@ -81,7 +95,17 @@ function applyUserMode(assignments = collectAssignments()) {
   assignmentList.replaceChildren(addAssignmentButton);
   assignments.forEach(createAssignment);
   updateReviewControls();
+  updateSenderInfo();
   updateSettingsProfileFields();
+}
+
+function updateSenderInfo() {
+  const name = workbookStudent?.name?.trim() ?? "";
+  const studentClass = workbookStudent?.class?.trim() ?? "";
+  const senderText = [name, studentClass].filter(Boolean).join(", ");
+  const showSender = userMode === USER_MODES.TEACHER && Boolean(senderText);
+  senderSection.hidden = !showSender;
+  senderName.textContent = showSender ? senderText : "";
 }
 
 function updateReviewControls() {
@@ -93,10 +117,13 @@ function updateReviewControls() {
 function updateSettingsProfileFields() {
   const isTeacher = modeSelect.value === USER_MODES.TEACHER;
   const details = isTeacher ? teacherDetails : studentDetails;
-  profileNameLabel.textContent = isTeacher ? "Դասատուի անուն" : "Սովորողի անուն";
-  profileEmailLabel.textContent = isTeacher ? "Դասատուի էլ․ փոստ" : "Սովորողի էլ․ փոստ";
+  profileNameLabel.textContent = "Անուն և ազգանուն";
+  profileEmailLabel.textContent = "Էլ․ փոստ";
   profileNameInput.value = details.name;
   profileEmailInput.value = details.email;
+  profileClassField.hidden = isTeacher;
+  profileClassInput.required = !isTeacher;
+  profileClassInput.value = isTeacher ? "" : details.class;
 }
 
 function openSettings() {
@@ -124,15 +151,22 @@ settingsDialog.addEventListener("close", async () => {
   }
 
   const isTeacher = selectedMode === USER_MODES.TEACHER;
+  const updatedClass = profileClassInput.value.trim();
   const updatedDetails = {
     name: profileNameInput.value.trim(),
-    email: profileEmailInput.value.trim()
+    email: profileEmailInput.value.trim(),
+    ...(isTeacher ? {} : { class: updatedClass })
   };
-  if (!updatedDetails.name || !updatedDetails.email || !profileEmailInput.checkValidity()) {
+  if (
+    !updatedDetails.name ||
+    !updatedDetails.email ||
+    !profileEmailInput.checkValidity() ||
+    (!isTeacher && !updatedClass)
+  ) {
     showStatus(
       isTeacher
         ? "Լրացրու դասատուի անունն ու վավեր էլ․ փոստը։"
-        : "Լրացրու սովորողի անունն ու վավեր էլ․ փոստը։",
+        : "Լրացրու սովորողի անունը, վավեր էլ․ փոստը և դասարանը։",
       "error"
     );
     return;
@@ -269,6 +303,7 @@ async function createWorkbook() {
     workbookGradeInput.value = "";
     hasUnsavedChanges = false;
     updateReviewControls();
+    updateSenderInfo();
     await syncNativeMenuMode();
     showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
   } catch (error) {
@@ -309,6 +344,10 @@ async function saveWorkbook() {
   } else {
     if (!studentDetails.name.trim() || !studentDetails.email.trim()) {
       showStatus("Կարգավորումներում լրացրու սովորողի անունն ու էլ․ փոստը։", "error");
+      return;
+    }
+    if (!studentDetails.class?.trim()) {
+      showStatus("Կարգավորումներում լրացրու սովորողի դասարանը։", "error");
       return;
     }
     const emailValidator = document.createElement("input");
@@ -469,8 +508,10 @@ function isValidSquaredContent(content) {
     content.version !== 2 ||
     !Number.isSafeInteger(content.rows) ||
     content.rows < 1 ||
+    content.rows > MAX_GRID_ROWS ||
     !Number.isSafeInteger(content.columns) ||
     content.columns < 1 ||
+    content.columns > MAX_GRID_COLUMNS ||
     typeof content.cells !== "string" ||
     !Array.isArray(content.borders)
   ) {
@@ -547,7 +588,7 @@ function createContentBlock(type, imageUrl, initialContent = "", editable = true
 function openImagePicker(blocks) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = "image/*";
+  input.accept = "image/png,image/jpeg";
   input.hidden = true;
   input.setAttribute("aria-label", "Ընտրել պատկեր");
   document.body.append(input);
@@ -557,8 +598,8 @@ function openImagePicker(blocks) {
     const file = input.files[0];
     input.remove();
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      status.textContent = "Ընտրիր պատկերի ֆայլ։";
+    if (!["image/png", "image/jpeg"].includes(file.type)) {
+      status.textContent = "Ընտրիր PNG կամ JPEG պատկեր։";
       status.className = "status status-error";
       return;
     }
@@ -815,7 +856,8 @@ function validateWorkbookDocument(documentData) {
       !documentData.student ||
       typeof documentData.student !== "object" ||
       typeof documentData.student.name !== "string" ||
-      typeof documentData.student.email !== "string"
+      typeof documentData.student.email !== "string" ||
+      (documentData.student.class !== undefined && typeof documentData.student.class !== "string")
     )) ||
     typeof documentData.solved !== "boolean" ||
     (documentData.verified !== undefined && (
@@ -877,6 +919,7 @@ function loadWorkbookDocument(documentData) {
     textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
   });
   updateReviewControls();
+  updateSenderInfo();
   hasUnsavedChanges = false;
   showStatus(
     workbookSolved && userMode === USER_MODES.TEACHER

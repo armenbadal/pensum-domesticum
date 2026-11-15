@@ -9,11 +9,13 @@
         },
         "rows": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 200
         },
         "columns": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 200
         },
         "cells": {
           "type": "string"
@@ -49,6 +51,23 @@
         "email": {
           "type": "string",
           "format": "email"
+        }
+      },
+      "required": ["name", "email"]
+    },
+    "student": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string",
+          "format": "email"
+        },
+        "class": {
+          "type": "string",
+          "description": "Սովորողի դասարան"
         }
       },
       "required": ["name", "email"]
@@ -118,7 +137,7 @@
       "$ref": "#/$defs/person"
     },
     "student": {
-      "$ref": "#/$defs/person"
+      "$ref": "#/$defs/student"
     },
     "verified": {
       "type": "object",

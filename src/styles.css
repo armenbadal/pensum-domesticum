@@ -211,6 +211,16 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.sender-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.sender-name {
+  overflow-wrap: anywhere;
+}
+
 .verification-section {
   display: flex;
   align-items: center;

@@ -1,5 +1,7 @@
 const DEFAULT_ROWS = 10;
 const DEFAULT_COLUMNS = 20;
+const MAX_ROWS = 200;
+const MAX_COLUMNS = 200;
 const ALLOWED_CHARACTER = /^[0-9+\-−*/×÷=()]$/u;
 
 class MathGrid extends HTMLElement {
@@ -327,6 +329,12 @@ class MathGrid extends HTMLElement {
   }
 
   #resizeGrid(rows, columns) {
+    if (rows < 1 || columns < 1 || rows > MAX_ROWS || columns > MAX_COLUMNS) {
+      this.#showMessage(
+        `Վանդակավոր դաշտը կարող է ունենալ առավելագույնը ${MAX_ROWS} տող և ${MAX_COLUMNS} սյուն։`,
+      );
+      return;
+    }
     const values = Array(rows * columns).fill("");
     for (let row = 0; row < Math.min(rows, this.#rows); row += 1) {
       for (let column = 0; column < Math.min(columns, this.#columns); column += 1) {
@@ -416,8 +424,10 @@ class MathGrid extends HTMLElement {
       || restored.version !== 2
       || !Number.isSafeInteger(rowCount)
       || rowCount < 1
+      || rowCount > MAX_ROWS
       || !Number.isSafeInteger(columnCount)
       || columnCount < 1
+      || columnCount > MAX_COLUMNS
       || typeof restored.cells !== "string"
       || !Array.isArray(restored.borders)
     ) {
@@ -598,9 +608,9 @@ class MathGrid extends HTMLElement {
     this.#thickenBottomButton.disabled = disabled || this.#selectedCells.size === 0;
     this.#thickenLeftButton.disabled = disabled || this.#selectedCells.size === 0;
     this.#clearBordersButton.disabled = disabled || this.#selectedCells.size === 0;
-    this.#addRowButton.disabled = disabled;
+    this.#addRowButton.disabled = disabled || this.#rows >= MAX_ROWS;
     this.#removeRowButton.disabled = disabled || this.#rows <= 1;
-    this.#addColumnButton.disabled = disabled;
+    this.#addColumnButton.disabled = disabled || this.#columns >= MAX_COLUMNS;
     this.#removeColumnButton.disabled = disabled || this.#columns <= 1;
     this.#updateCellStyles();
   }
