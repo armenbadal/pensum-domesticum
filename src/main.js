@@ -345,6 +345,26 @@ async function listenForCreateMenu() {
   }
 }
 
+// Լռելյայն ֆայլի անունը՝ «վերնագիր[-սովորող]-լուծված[-գնահատված].pdw»։
+// Սովորողի անունը վերցվում է documentData.student-ից, որ լինի և՛ սովորողի, և՛ դասատուի
+// ռեժիմում (դասատուի ռեժիմում studentDetails-ը դասատուի սեփական տվյալներն են)։
+function buildWorkbookFileName(documentData) {
+  const invalidFileNameCharacters = /[<>:"/\\|?*\u0000-\u001f]/g;
+  const sanitize = text => text.trim().replace(invalidFileNameCharacters, "-");
+  const parts = [sanitize(documentData.title) || "workbook"];
+  const studentName = documentData.student?.name?.trim();
+  if (documentData.solved && studentName) {
+    parts.push(sanitize(studentName).replace(/\s+/g, "-"));
+  }
+  if (documentData.solved) {
+    parts.push("լուծված");
+  }
+  if (documentData.solved && documentData.verified?.grade !== undefined) {
+    parts.push("գնահատված");
+  }
+  return `${parts.join("-")}.pdw`;
+}
+
 async function saveWorkbook({ saveAs = false } = {}) {
   if (userMode === USER_MODES.STUDENT && workbookVerified) {
     showStatus("Ստուգված տետրը միայն դիտման համար է։", "error");
@@ -393,25 +413,11 @@ async function saveWorkbook({ saveAs = false } = {}) {
   try {
     const revisionAtStart = revision;
     const documentData = createDocument();
-    const invalidFileNameCharacters = /[<>:"/\\|?*\u0000-\u001f]/g;
-    const safeName = documentData.title.trim().replace(invalidFileNameCharacters, "-") || "workbook";
-    const safeStudentName = studentDetails.name
-      .trim()
-      .replace(invalidFileNameCharacters, "-")
-      .replace(/\s+/g, "-");
-    const isGradedSolution = userMode === USER_MODES.TEACHER
-      && documentData.solved
-      && documentData.verified?.grade !== undefined;
-    const suffix = isGradedSolution
-      ? "-լուծված-գնահատված"
-      : userMode === USER_MODES.STUDENT && documentData.solved
-        ? `-${safeStudentName}-լուծված`
-        : "";
     let path = saveAs ? null : currentWorkbookPath;
     if (!path) {
       path = await window.__TAURI__.dialog.save({
         title: "Պահպանել տետրը",
-        defaultPath: `${safeName}${suffix}.pdw`,
+        defaultPath: buildWorkbookFileName(documentData),
         filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
       });
       if (!path) return;
