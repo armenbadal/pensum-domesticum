@@ -36,17 +36,22 @@ function showStatus(message, type = "") {
   status.className = type ? `status status-${type}` : "status";
 }
 
-function isDirty() {
-  return revision !== savedRevision;
+function serializeDocument(documentData) {
+  const serializable = { ...documentData };
+  delete serializable["created-at"];
+  return JSON.stringify(serializable);
 }
 
-function markWorkbookChanged() {
-  revision += 1;
+function getDocumentSnapshot() {
+  return serializeDocument(createDocument());
+}
+
+function isDirty() {
+  return savedSnapshot !== null && getDocumentSnapshot() !== savedSnapshot;
 }
 
 function markWorkbookSaved() {
-  revision = 0;
-  savedRevision = 0;
+  savedSnapshot = getDocumentSnapshot();
 }
 
 function loadUserMode() {
@@ -90,8 +95,7 @@ function loadProfileDetails(storageKey, profileName, includeClass = false) {
 let userMode = loadUserMode();
 let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
 let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի", true);
-let revision = 0;
-let savedRevision = 0;
+let savedSnapshot = null;
 let saveInProgress = false;
 let currentWorkbookPath = null;
 let documentGeneration = 0;
@@ -218,11 +222,9 @@ settingsDialog.addEventListener("close", async () => {
     });
     const assignments = collectAssignments();
     const modeChanged = selectedMode !== userMode;
-    const detailsChanged = isTeacher
-      ? teacherDetails.name !== updatedDetails.name || teacherDetails.email !== updatedDetails.email
-      : studentDetails.name !== updatedDetails.name ||
-        studentDetails.email !== updatedDetails.email ||
-        studentDetails.class !== updatedDetails.class;
+    const emailChanged =
+      normalizeEmail(updatedDetails.email) !==
+      normalizeEmail(isTeacher ? teacherDetails.email : studentDetails.email);
     userMode = selectedMode;
     if (isTeacher) {
       teacherDetails = updatedDetails;
@@ -230,8 +232,9 @@ settingsDialog.addEventListener("close", async () => {
       studentDetails = updatedDetails;
     }
     applyUserMode(assignments);
-    if (modeChanged || detailsChanged) {
-      markWorkbookChanged();
+    if (modeChanged || emailChanged) {
+      documentGeneration += 1;
+      currentWorkbookPath = null;
     }
     showStatus("Կարգավորումները պահպանվեցին։");
   } catch (error) {
@@ -432,10 +435,10 @@ async function saveWorkbook({ saveAs = false } = {}) {
 
   saveInProgress = true;
   try {
-    const revisionAtStart = revision;
     const generationAtStart = documentGeneration;
     const modeAtStart = userMode;
     const documentData = createDocument();
+    const snapshotAtStart = serializeDocument(documentData);
     let path = saveAs ? null : currentWorkbookPath;
     if (!path) {
       path = await window.__TAURI__.dialog.save({
@@ -454,18 +457,18 @@ async function saveWorkbook({ saveAs = false } = {}) {
       documentGeneration === generationAtStart && userMode === modeAtStart;
     if (documentUnchanged) {
       workbookSolved = documentData.solved;
-      workbookVerified = documentData.verified !== undefined;
+      workbookVerified = workbookRating !== "";
       workbookCreatedAt = documentData["created-at"];
       currentWorkbookPath = path;
-      savedRevision = revisionAtStart;
+      savedSnapshot = snapshotAtStart;
     }
     await syncNativeMenuMode();
     if (!documentUnchanged) {
       showStatus("Տետրը պահպանվեց, բայց պահպանման ընթացքում ընթացիկ տետրը փոխվեց։", "error");
-    } else if (revision === savedRevision) {
-      showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
-    } else {
+    } else if (isDirty()) {
       showStatus("Տետրը պահպանվեց, բայց պահպանման ընթացքում նոր փոփոխություններ կան։", "error");
+    } else {
+      showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
     }
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել տետրը։ ${error.message}`, "error");
@@ -501,12 +504,17 @@ async function openWorkbookFromPath(path) {
 // Ֆայլը կարելի է պահել նույն տեղում միայն, եթե այն ստեղծել է ընթացիկ օգտվողը։
 // Ուրիշի ֆայլը (օր․ ուսուցչի տետրը սովորողի համար կամ սովորողի լուծումը ուսուցչի համար)
 // միշտ պահվում է որպես նոր ֆայլ, որպեսզի օրիգինալը չվերագրվի։
+function normalizeEmail(email) {
+  return email.trim().toLowerCase();
+}
+
 function isOwnWorkbook(documentData) {
   if (userMode === USER_MODES.TEACHER) {
-    return documentData.student === undefined;
+    return documentData.student === undefined
+      && normalizeEmail(documentData.teacher.email) === normalizeEmail(teacherDetails.email);
   }
   return documentData.student !== undefined
-    && documentData.student.email === studentDetails.email;
+    && normalizeEmail(documentData.student.email) === normalizeEmail(studentDetails.email);
 }
 
 async function openWorkbook() {
@@ -885,7 +893,6 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
 }
 
 function clearOutput(message = "Փոփոխություններ կան․ տետրը պահպանելու համար ընտրիր «Պահպանել»։") {
-  markWorkbookChanged();
   showStatus(message);
 }
 
@@ -1044,6 +1051,7 @@ form.addEventListener("submit", event => {
 });
 
 applyUserMode();
+markWorkbookSaved();
 syncNativeMenuMode();
 listenForCreateMenu();
 listenForSettingsMenu();
