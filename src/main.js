@@ -47,7 +47,7 @@ function getDocumentSnapshot() {
 }
 
 function isDirty() {
-  return savedSnapshot !== null && getDocumentSnapshot() !== savedSnapshot;
+  return workbookOpen && savedSnapshot !== null && getDocumentSnapshot() !== savedSnapshot;
 }
 
 function markWorkbookSaved() {
@@ -101,6 +101,7 @@ let currentWorkbookPath = null;
 let documentGeneration = 0;
 let workbookCreatedAt = null;
 let workbookRating = "";
+let workbookOpen = false;
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
 let workbookVerified = false;
@@ -111,7 +112,7 @@ let pendingWorkbookProcessing = Promise.resolve();
 function applyUserMode(assignments = collectAssignments()) {
   const isTeacher = userMode === USER_MODES.TEACHER;
   const canEditTeacherContent = isTeacher && !workbookSolved;
-  form.hidden = false;
+  form.hidden = !workbookOpen;
   form.elements.title.readOnly = !canEditTeacherContent;
   workbookDescriptionInput.readOnly = !canEditTeacherContent;
   addAssignmentButton.hidden = !canEditTeacherContent;
@@ -213,15 +214,21 @@ settingsDialog.addEventListener("close", async () => {
   }
 
   try {
+    const modeChanged = selectedMode !== userMode;
+    const shouldSaveWorkbook = modeChanged && workbookOpen && isDirty();
+    if (shouldSaveWorkbook && !(await saveWorkbook())) {
+      showStatus("Ռեժիմը չփոխվեց․ նախ պահպանիր բաց տետրը։", "error");
+      return;
+    }
+
     localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
     const detailsStorageKey = isTeacher ? TEACHER_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
     localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
     await window.__TAURI__.core.invoke("set_user_mode", {
       mode: selectedMode,
-      verified: workbookVerified
+      verified: modeChanged ? false : workbookVerified
     });
     const assignments = collectAssignments();
-    const modeChanged = selectedMode !== userMode;
     const emailChanged =
       normalizeEmail(updatedDetails.email) !==
       normalizeEmail(isTeacher ? teacherDetails.email : studentDetails.email);
@@ -231,12 +238,22 @@ settingsDialog.addEventListener("close", async () => {
     } else {
       studentDetails = updatedDetails;
     }
-    applyUserMode(assignments);
-    if (modeChanged || emailChanged) {
-      documentGeneration += 1;
-      currentWorkbookPath = null;
+    if (modeChanged) {
+      closeWorkbook();
+    } else {
+      applyUserMode(assignments);
+      if (emailChanged) {
+        documentGeneration += 1;
+        currentWorkbookPath = null;
+      }
     }
-    showStatus("Կարգավորումները պահպանվեցին։");
+    showStatus(
+      shouldSaveWorkbook
+        ? "Ռեժիմը փոխվեց․ բաց տետրը պահպանվեց և փակվեց։"
+        : modeChanged
+          ? "Ռեժիմը փոխվեց։"
+          : "Կարգավորումները պահպանվեցին։"
+    );
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել ռեժիմը։ ${error.message}`, "error");
   }
@@ -341,6 +358,7 @@ async function createWorkbook() {
     if (!(await confirmDiscardChanges("Ստեղծե՞լ նոր դատարկ տետր։"))) return;
 
     documentGeneration += 1;
+    workbookOpen = true;
     form.elements.title.value = "";
     workbookDescriptionInput.value = "";
     assignmentList.replaceChildren(addAssignmentButton);
@@ -359,6 +377,24 @@ async function createWorkbook() {
   } catch (error) {
     showStatus(`Չհաջողվեց ստեղծել նոր տետրը։ ${error.message}`, "error");
   }
+}
+
+function closeWorkbook() {
+  documentGeneration += 1;
+  workbookOpen = false;
+  form.elements.title.value = "";
+  workbookDescriptionInput.value = "";
+  assignmentList.replaceChildren(addAssignmentButton);
+  hasLoadedWorkbook = false;
+  workbookSolved = false;
+  workbookVerified = false;
+  workbookTeacher = null;
+  workbookStudent = null;
+  workbookRating = "";
+  workbookCreatedAt = null;
+  currentWorkbookPath = null;
+  applyUserMode();
+  markWorkbookSaved();
 }
 
 async function listenForCreateMenu() {
@@ -390,46 +426,53 @@ function buildWorkbookFileName(documentData) {
 }
 
 async function saveWorkbook({ saveAs = false } = {}) {
+  if (!workbookOpen) {
+    showStatus(
+      userMode === USER_MODES.TEACHER ? "Նախ ստեղծիր կամ բացիր տետր։" : "Նախ բացիր տետրը։",
+      "error"
+    );
+    return false;
+  }
   if (userMode === USER_MODES.STUDENT && workbookVerified) {
     showStatus("Ստուգված տետրը միայն դիտման համար է։", "error");
-    return;
+    return false;
   }
   if (userMode === USER_MODES.STUDENT && !hasLoadedWorkbook) {
     showStatus("Պահպանելու համար նախ բացիր ուսուցչի տետրը։", "error");
-    return;
+    return false;
   }
   if (saveInProgress) {
     showStatus("Պահպանումն արդեն ընթացքի մեջ է։", "error");
-    return;
+    return false;
   }
-  if (!form.reportValidity()) return;
+  if (!form.reportValidity()) return false;
   if (userMode === USER_MODES.TEACHER) {
     if (!teacherDetails.name.trim() || !teacherDetails.email.trim()) {
       showStatus("Կարգավորումներում լրացրու դասատուի անունն ու էլ․ փոստը։", "error");
-      return;
+      return false;
     }
     const emailValidator = document.createElement("input");
     emailValidator.type = "email";
     emailValidator.value = teacherDetails.email;
     if (!emailValidator.checkValidity()) {
       showStatus("Կարգավորումներում լրացրու դասատուի վավեր էլ․ փոստը։", "error");
-      return;
+      return false;
     }
   } else {
     if (!studentDetails.name.trim() || !studentDetails.email.trim()) {
       showStatus("Կարգավորումներում լրացրու սովորողի անունն ու էլ․ փոստը։", "error");
-      return;
+      return false;
     }
     if (!studentDetails.class?.trim()) {
       showStatus("Կարգավորումներում լրացրու սովորողի դասարանը։", "error");
-      return;
+      return false;
     }
     const emailValidator = document.createElement("input");
     emailValidator.type = "email";
     emailValidator.value = studentDetails.email;
     if (!emailValidator.checkValidity()) {
       showStatus("Կարգավորումներում լրացրու սովորողի վավեր էլ․ փոստը։", "error");
-      return;
+      return false;
     }
   }
 
@@ -446,7 +489,7 @@ async function saveWorkbook({ saveAs = false } = {}) {
         defaultPath: buildWorkbookFileName(documentData),
         filters: [{ name: "PDW տետր (ZIP)", extensions: ["pdw"] }]
       });
-      if (!path) return;
+      if (!path) return false;
     }
 
     await window.__TAURI__.core.invoke("save_workbook", {
@@ -470,8 +513,10 @@ async function saveWorkbook({ saveAs = false } = {}) {
     } else {
       showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
     }
+    return true;
   } catch (error) {
     showStatus(`Չհաջողվեց պահպանել տետրը։ ${error.message}`, "error");
+    return false;
   } finally {
     saveInProgress = false;
   }
@@ -1009,6 +1054,7 @@ function validateWorkbookDocument(documentData) {
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
   documentGeneration += 1;
+  workbookOpen = true;
   form.elements.title.value = documentData.title;
   workbookDescriptionInput.value = documentData.description;
   workbookTeacher = documentData.teacher;

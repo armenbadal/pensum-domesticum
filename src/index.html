@@ -8,7 +8,7 @@
 </head>
 <body>
   <main>
-    <form class="editor" id="workbook-form">
+    <form class="editor" id="workbook-form" hidden>
       <div class="metadata">
         <div class="field field-full">
           <label class="workbook-title-label" for="workbook-title">Թեմա</label>
@@ -42,8 +42,8 @@
           <button type="button" role="radio" aria-checked="false" data-emoji="🤩" title="Գերազանց">🤩</button>
         </div>
       </section>
-      <p class="status" id="status" aria-live="polite"></p>
     </form>
+    <p class="status" id="status" aria-live="polite"></p>
   </main>
 
   <dialog class="settings-dialog" id="settings-dialog" aria-labelledby="settings-title">
