@@ -20,6 +20,10 @@ const profileClassInput = document.querySelector("#profile-class");
 const addAssignmentButton = document.querySelector("#add-assignment");
 const senderSection = document.querySelector("#sender-section");
 const senderName = document.querySelector("#sender-name");
+const toolbarCreate = document.querySelector("#toolbar-create");
+const toolbarOpen = document.querySelector("#toolbar-open");
+const toolbarSave = document.querySelector("#toolbar-save");
+const toolbarSaveAs = document.querySelector("#toolbar-save-as");
 
 const USER_MODES = Object.freeze({
   TEACHER: "teacher",
@@ -52,6 +56,33 @@ function isDirty() {
 
 function markWorkbookSaved() {
   savedSnapshot = getDocumentSnapshot();
+  syncToolbar();
+}
+
+function syncToolbar() {
+  if (toolbarSyncTimer !== null) {
+    clearTimeout(toolbarSyncTimer);
+    toolbarSyncTimer = null;
+  }
+
+  const isTeacher = userMode === USER_MODES.TEACHER;
+  const canSaveWorkbook = isTeacher || !workbookVerified;
+  toolbarCreate.hidden = !isTeacher;
+  toolbarCreate.disabled = saveInProgress;
+  toolbarOpen.disabled = saveInProgress;
+  toolbarSave.hidden = !canSaveWorkbook;
+  toolbarSave.disabled =
+    !canSaveWorkbook || !workbookOpen || saveInProgress || !isDirty();
+  toolbarSaveAs.hidden = !canSaveWorkbook;
+  toolbarSaveAs.disabled = !canSaveWorkbook || !workbookOpen || saveInProgress;
+}
+
+function scheduleToolbarSync() {
+  if (toolbarSyncTimer !== null) clearTimeout(toolbarSyncTimer);
+  toolbarSyncTimer = setTimeout(() => {
+    toolbarSyncTimer = null;
+    syncToolbar();
+  }, 200);
 }
 
 function loadUserMode() {
@@ -108,6 +139,7 @@ let workbookVerified = false;
 let workbookTeacher = null;
 let workbookStudent = null;
 let pendingWorkbookProcessing = Promise.resolve();
+let toolbarSyncTimer = null;
 
 function applyUserMode(assignments = collectAssignments()) {
   const isTeacher = userMode === USER_MODES.TEACHER;
@@ -122,6 +154,7 @@ function applyUserMode(assignments = collectAssignments()) {
   updateReviewControls();
   updateSenderInfo();
   updateSettingsProfileFields();
+  syncToolbar();
 }
 
 function updateSenderInfo() {
@@ -477,6 +510,7 @@ async function saveWorkbook({ saveAs = false } = {}) {
   }
 
   saveInProgress = true;
+  syncToolbar();
   try {
     const generationAtStart = documentGeneration;
     const modeAtStart = userMode;
@@ -519,6 +553,7 @@ async function saveWorkbook({ saveAs = false } = {}) {
     return false;
   } finally {
     saveInProgress = false;
+    syncToolbar();
   }
 }
 
@@ -938,6 +973,7 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
 }
 
 function clearOutput(message = "Փոփոխություններ կան․ տետրը պահպանելու համար ընտրիր «Պահպանել»։") {
+  scheduleToolbarSync();
   showStatus(message);
 }
 
@@ -1095,6 +1131,11 @@ form.addEventListener("submit", event => {
   event.preventDefault();
   saveWorkbook();
 });
+
+toolbarCreate.addEventListener("click", createWorkbook);
+toolbarOpen.addEventListener("click", openWorkbook);
+toolbarSave.addEventListener("click", () => saveWorkbook());
+toolbarSaveAs.addEventListener("click", () => saveWorkbook({ saveAs: true }));
 
 applyUserMode();
 markWorkbookSaved();

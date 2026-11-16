@@ -7,6 +7,24 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+  <header class="toolbar" id="toolbar" role="toolbar" aria-label="Տետրի գործողություններ">
+    <div class="toolbar-group">
+      <button class="toolbar-button" id="toolbar-create" type="button" aria-label="Ստեղծել նոր տետր" title="Ստեղծել" hidden>
+        <img src="./assets/icons/create.png" alt="" draggable="false">
+      </button>
+      <button class="toolbar-button" id="toolbar-open" type="button" aria-label="Բացել տետր" title="Բացել">
+        <img src="./assets/icons/open.png" alt="" draggable="false">
+      </button>
+    </div>
+    <div class="toolbar-group">
+      <button class="toolbar-button" id="toolbar-save" type="button" aria-label="Պահպանել տետրը" title="Պահպանել" disabled>
+        <img src="./assets/icons/save.png" alt="" draggable="false">
+      </button>
+      <button class="toolbar-button" id="toolbar-save-as" type="button" aria-label="Պահպանել տետրը որպես նոր ֆայլ" title="Պահպանել որպես…" disabled>
+        <img src="./assets/icons/save-as.png" alt="" draggable="false">
+      </button>
+    </div>
+  </header>
   <main>
     <form class="editor" id="workbook-form" hidden>
       <div class="metadata">

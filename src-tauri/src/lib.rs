@@ -197,7 +197,7 @@ fn build_app_menu<M: Manager<Wry>>(
         manager,
         "save-as",
         "Պահպանել որպես…",
-        include_bytes!("../icons/menu/save.png"),
+        include_bytes!("../icons/menu/save-as.png"),
     )?;
     let settings_item = icon_menu_item(
         manager,
