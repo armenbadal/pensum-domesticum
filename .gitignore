@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Maintainer-only teacher certificate signing material
+*.pdcert
+pensum-pilot.key
+pensum-pilot-*.key
+pilot-signing-key*
+maintainer-keys/
+.pensum-keys/
