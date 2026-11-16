@@ -95,6 +95,7 @@ let savedRevision = 0;
 let saveInProgress = false;
 let currentWorkbookPath = null;
 let documentGeneration = 0;
+let workbookCreatedAt = null;
 let workbookRating = "";
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
@@ -346,6 +347,7 @@ async function createWorkbook() {
     workbookTeacher = null;
     workbookStudent = null;
     workbookRating = "";
+    workbookCreatedAt = null;
     currentWorkbookPath = null;
     markWorkbookSaved();
     applyUserMode();
@@ -444,7 +446,6 @@ async function saveWorkbook({ saveAs = false } = {}) {
       if (!path) return;
     }
 
-    documentData["created-at"] = getLocalDateString();
     await window.__TAURI__.core.invoke("save_workbook", {
       path,
       workbook: documentData
@@ -454,6 +455,7 @@ async function saveWorkbook({ saveAs = false } = {}) {
     if (documentUnchanged) {
       workbookSolved = documentData.solved;
       workbookVerified = documentData.verified !== undefined;
+      workbookCreatedAt = documentData["created-at"];
       currentWorkbookPath = path;
       savedRevision = revisionAtStart;
     }
@@ -928,7 +930,7 @@ function createDocument() {
       : workbookStudent
         ? { student: { ...workbookStudent } }
         : {}),
-    "created-at": getLocalDateString(),
+    "created-at": workbookCreatedAt ?? getLocalDateString(),
     solved: userMode === USER_MODES.STUDENT || workbookSolved,
     assignments: collectAssignments(),
     ...(workbookRating === "" ? {} : { verified: { emoji: workbookRating } })
@@ -1007,6 +1009,7 @@ function loadWorkbookDocument(documentData) {
   hasLoadedWorkbook = true;
   workbookSolved = documentData.solved;
   workbookVerified = documentData.verified !== undefined;
+  workbookCreatedAt = documentData["created-at"];
   workbookRating = documentData.verified?.emoji ?? "";
   applyUserMode(documentData.assignments);
   assignmentList.querySelectorAll(".content-block-text textarea").forEach(textarea => {
