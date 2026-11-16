@@ -94,6 +94,7 @@ let revision = 0;
 let savedRevision = 0;
 let saveInProgress = false;
 let currentWorkbookPath = null;
+let documentGeneration = 0;
 let workbookRating = "";
 let hasLoadedWorkbook = false;
 let workbookSolved = false;
@@ -335,6 +336,7 @@ async function createWorkbook() {
   try {
     if (!(await confirmDiscardChanges("Ստեղծե՞լ նոր դատարկ տետր։"))) return;
 
+    documentGeneration += 1;
     form.elements.title.value = "";
     workbookDescriptionInput.value = "";
     assignmentList.replaceChildren(addAssignmentButton);
@@ -430,6 +432,8 @@ async function saveWorkbook({ saveAs = false } = {}) {
   saveInProgress = true;
   try {
     const revisionAtStart = revision;
+    const generationAtStart = documentGeneration;
+    const modeAtStart = userMode;
     const documentData = createDocument();
     let path = saveAs ? null : currentWorkbookPath;
     if (!path) {
@@ -446,12 +450,18 @@ async function saveWorkbook({ saveAs = false } = {}) {
       path,
       workbook: documentData
     });
-    workbookSolved = documentData.solved;
-    workbookVerified = documentData.verified !== undefined;
-    currentWorkbookPath = path;
-    savedRevision = revisionAtStart;
+    const documentUnchanged =
+      documentGeneration === generationAtStart && userMode === modeAtStart;
+    if (documentUnchanged) {
+      workbookSolved = documentData.solved;
+      workbookVerified = documentData.verified !== undefined;
+      currentWorkbookPath = path;
+      savedRevision = revisionAtStart;
+    }
     await syncNativeMenuMode();
-    if (revision === savedRevision) {
+    if (!documentUnchanged) {
+      showStatus("Տետրը պահպանվեց, բայց պահպանման ընթացքում ընթացիկ տետրը փոխվեց։", "error");
+    } else if (revision === savedRevision) {
       showStatus("Տետրը պահպանվեց PDW ֆայլով։", "success");
     } else {
       showStatus("Տետրը պահպանվեց, բայց պահպանման ընթացքում նոր փոփոխություններ կան։", "error");
@@ -990,6 +1000,7 @@ function validateWorkbookDocument(documentData) {
 
 function loadWorkbookDocument(documentData) {
   validateWorkbookDocument(documentData);
+  documentGeneration += 1;
   form.elements.title.value = documentData.title;
   workbookDescriptionInput.value = documentData.description;
   workbookTeacher = documentData.teacher;
