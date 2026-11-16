@@ -348,8 +348,7 @@ async function createWorkbook() {
     workbookRating = "";
     currentWorkbookPath = null;
     markWorkbookSaved();
-    updateReviewControls();
-    updateSenderInfo();
+    applyUserMode();
     await syncNativeMenuMode();
     showStatus("Ստեղծվեց նոր դատարկ տետր։", "success");
   } catch (error) {
@@ -1009,16 +1008,13 @@ function loadWorkbookDocument(documentData) {
   workbookSolved = documentData.solved;
   workbookVerified = documentData.verified !== undefined;
   workbookRating = documentData.verified?.emoji ?? "";
-  assignmentList.replaceChildren(addAssignmentButton);
-  documentData.assignments.forEach(createAssignment);
+  applyUserMode(documentData.assignments);
   assignmentList.querySelectorAll(".content-block-text textarea").forEach(textarea => {
     textarea.style.height = "auto";
     const styles = getComputedStyle(textarea);
     const borderHeight = parseFloat(styles.borderTopWidth) + parseFloat(styles.borderBottomWidth);
     textarea.style.height = `${textarea.scrollHeight + borderHeight}px`;
   });
-  updateReviewControls();
-  updateSenderInfo();
   markWorkbookSaved();
   showStatus(
     workbookSolved && userMode === USER_MODES.TEACHER
