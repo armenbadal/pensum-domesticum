@@ -277,16 +277,17 @@ fn take_pending_workbook_paths(
         .0
         .lock()
         .map_err(|error| format!("Չհաջողվեց ստանալ բացվող տետրի ուղին։ {error}"))?;
-    let paths = pending
-        .iter()
-        .map(|path| {
-            path.to_str()
-                .map(str::to_owned)
-                .ok_or_else(|| "Տետրի ֆայլի ուղին չի կարող ներկայացվել որպես տեքստ։".to_string())
+    let paths = std::mem::take(&mut *pending);
+    Ok(paths
+        .into_iter()
+        .filter_map(|path| match path.to_str() {
+            Some(path) => Some(path.to_owned()),
+            None => {
+                eprintln!("Տետրի ֆայլի ուղին չի կարող ներկայացվել որպես տեքստ՝ {path:?}");
+                None
+            }
         })
-        .collect::<Result<Vec<_>, _>>()?;
-    pending.clear();
-    Ok(paths)
+        .collect())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
