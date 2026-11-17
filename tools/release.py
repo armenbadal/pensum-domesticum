@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 CARGO_TOML = Path("src-tauri/Cargo.toml")
 TAURI_CONFIG = Path("src-tauri/tauri.conf.json")
 CARGO_LOCK = Path("src-tauri/Cargo.lock")
@@ -72,7 +72,7 @@ def ensure_clean_worktree():
     unexpected = []
 
     for line in lines:
-        if line == "?? release.py":
+        if line == "?? tools/release.py":
             release_script_is_new = True
         else:
             unexpected.append(line)
@@ -182,7 +182,8 @@ def run_release_checks():
         if shutil.which(executable) is None:
             raise ReleaseError(f"Պահանջվող հրամանը PATH-ում չկա՝ {executable}։")
 
-    run_check(["node", "--check", "src/main.js"])
+    main_source = (ROOT / "src/main.js").read_text(encoding="utf-8")
+    run_check(["node", "--input-type=module", "--check"], stdin=main_source)
     grid_source = (ROOT / "src/components/math-grid/math-grid.js").read_text(
         encoding="utf-8"
     )
@@ -236,7 +237,7 @@ def main():
         str(TEST_PLAN),
     }
     if release_script_is_new:
-        allowed_paths.add("release.py")
+        allowed_paths.add("tools/release.py")
     changed_paths = set(git("diff", "--name-only", capture=True).splitlines())
     untracked_paths = set(
         git("ls-files", "--others", "--exclude-standard", capture=True).splitlines()

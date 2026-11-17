@@ -10,7 +10,6 @@ const RATING_EMOJIS = Object.freeze(["😟", "😐", "🙂", "😊", "🤩"]);
 const settingsDialog = document.querySelector("#settings-dialog");
 const aboutDialog = document.querySelector("#about-dialog");
 const aboutVersion = document.querySelector("#about-version");
-const modeSelect = document.querySelector("#user-mode");
 const profileNameLabel = document.querySelector("#profile-name-label");
 const profileEmailLabel = document.querySelector("#profile-email-label");
 const profileNameInput = document.querySelector("#profile-name");
@@ -29,7 +28,6 @@ const USER_MODES = Object.freeze({
   TEACHER: "teacher",
   STUDENT: "student"
 });
-const USER_MODE_STORAGE_KEY = "pensum-user-mode";
 const TEACHER_DETAILS_STORAGE_KEY = "pensum-author-details";
 const STUDENT_DETAILS_STORAGE_KEY = "pensum-student-details";
 const MAX_GRID_ROWS = 200;
@@ -85,16 +83,6 @@ function scheduleToolbarSync() {
   }, 200);
 }
 
-function loadUserMode() {
-  try {
-    const savedMode = localStorage.getItem(USER_MODE_STORAGE_KEY);
-    return savedMode === USER_MODES.STUDENT ? USER_MODES.STUDENT : USER_MODES.TEACHER;
-  } catch (error) {
-    showStatus(`Չհաջողվեց կարդալ պահպանված ռեժիմը։ ${error.message}`, "error");
-    return USER_MODES.TEACHER;
-  }
-}
-
 function loadProfileDetails(storageKey, profileName, includeClass = false) {
   const emptyDetails = includeClass
     ? { name: "", email: "", class: "" }
@@ -123,7 +111,7 @@ function loadProfileDetails(storageKey, profileName, includeClass = false) {
   }
 }
 
-let userMode = loadUserMode();
+let userMode = USER_MODES.STUDENT;
 let teacherDetails = loadProfileDetails(TEACHER_DETAILS_STORAGE_KEY, "դասատուի");
 let studentDetails = loadProfileDetails(STUDENT_DETAILS_STORAGE_KEY, "սովորողի", true);
 let savedSnapshot = null;
@@ -148,7 +136,6 @@ function applyUserMode(assignments = collectAssignments()) {
   form.elements.title.readOnly = !canEditTeacherContent;
   workbookDescriptionInput.readOnly = !canEditTeacherContent;
   addAssignmentButton.hidden = !canEditTeacherContent;
-  modeSelect.value = userMode;
   assignmentList.replaceChildren(addAssignmentButton);
   assignments.forEach(createAssignment);
   updateReviewControls();
@@ -189,7 +176,7 @@ ratingPicker.addEventListener("click", event => {
 });
 
 function updateSettingsProfileFields() {
-  const isTeacher = modeSelect.value === USER_MODES.TEACHER;
+  const isTeacher = userMode === USER_MODES.TEACHER;
   const details = isTeacher ? teacherDetails : studentDetails;
   profileNameLabel.textContent = "Անուն և ազգանուն";
   profileEmailLabel.textContent = "Էլ․ փոստ";
@@ -201,7 +188,6 @@ function updateSettingsProfileFields() {
 }
 
 function openSettings() {
-  modeSelect.value = userMode;
   updateSettingsProfileFields();
   if (!settingsDialog.open) settingsDialog.showModal();
 }
@@ -213,18 +199,10 @@ function getLocalDateString(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
-modeSelect.addEventListener("change", updateSettingsProfileFields);
-
-settingsDialog.addEventListener("close", async () => {
+settingsDialog.addEventListener("close", () => {
   if (settingsDialog.returnValue !== "save") return;
 
-  const selectedMode = modeSelect.value;
-  if (selectedMode !== USER_MODES.TEACHER && selectedMode !== USER_MODES.STUDENT) {
-    showStatus("Ընտրիր վավեր օգտվողի ռեժիմ։", "error");
-    return;
-  }
-
-  const isTeacher = selectedMode === USER_MODES.TEACHER;
+  const isTeacher = userMode === USER_MODES.TEACHER;
   const updatedClass = profileClassInput.value.trim();
   const updatedDetails = {
     name: profileNameInput.value.trim(),
@@ -246,50 +224,26 @@ settingsDialog.addEventListener("close", async () => {
     return;
   }
 
+  const previousEmail = isTeacher ? teacherDetails.email : studentDetails.email;
+  const detailsStorageKey = isTeacher ? TEACHER_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
   try {
-    const modeChanged = selectedMode !== userMode;
-    const shouldSaveWorkbook = modeChanged && workbookOpen && isDirty();
-    if (shouldSaveWorkbook && !(await saveWorkbook())) {
-      showStatus("Ռեժիմը չփոխվեց․ նախ պահպանիր բաց տետրը։", "error");
-      return;
-    }
-
-    localStorage.setItem(USER_MODE_STORAGE_KEY, selectedMode);
-    const detailsStorageKey = isTeacher ? TEACHER_DETAILS_STORAGE_KEY : STUDENT_DETAILS_STORAGE_KEY;
     localStorage.setItem(detailsStorageKey, JSON.stringify(updatedDetails));
-    await window.__TAURI__.core.invoke("set_user_mode", {
-      mode: selectedMode,
-      verified: modeChanged ? false : workbookVerified
-    });
-    const assignments = collectAssignments();
-    const emailChanged =
-      normalizeEmail(updatedDetails.email) !==
-      normalizeEmail(isTeacher ? teacherDetails.email : studentDetails.email);
-    userMode = selectedMode;
-    if (isTeacher) {
-      teacherDetails = updatedDetails;
-    } else {
-      studentDetails = updatedDetails;
-    }
-    if (modeChanged) {
-      closeWorkbook();
-    } else {
-      applyUserMode(assignments);
-      if (emailChanged) {
-        documentGeneration += 1;
-        currentWorkbookPath = null;
-      }
-    }
-    showStatus(
-      shouldSaveWorkbook
-        ? "Ռեժիմը փոխվեց․ բաց տետրը պահպանվեց և փակվեց։"
-        : modeChanged
-          ? "Ռեժիմը փոխվեց։"
-          : "Կարգավորումները պահպանվեցին։"
-    );
   } catch (error) {
-    showStatus(`Չհաջողվեց պահպանել ռեժիմը։ ${error.message}`, "error");
+    showStatus(`Չհաջողվեց պահպանել կարգավորումները։ ${error.message}`, "error");
+    return;
   }
+
+  if (isTeacher) {
+    teacherDetails = updatedDetails;
+  } else {
+    studentDetails = updatedDetails;
+  }
+  applyUserMode();
+  if (normalizeEmail(updatedDetails.email) !== normalizeEmail(previousEmail)) {
+    documentGeneration += 1;
+    currentWorkbookPath = null;
+  }
+  showStatus("Կարգավորումները պահպանվեցին։");
 });
 
 async function listenForSettingsMenu() {
@@ -297,6 +251,68 @@ async function listenForSettingsMenu() {
     await window.__TAURI__.event.listen("open-settings", openSettings);
   } catch (error) {
     showStatus(`Չհաջողվեց միացնել կարգավորումների մենյուն։ ${error.message}`, "error");
+  }
+}
+
+async function importTeacherCertificate() {
+  let path;
+  try {
+    path = await window.__TAURI__.dialog.open({
+      title: "Հավաստագիր",
+      multiple: false,
+      directory: false,
+      filters: [{ name: "Դասատուի հավաստագիր", extensions: ["pdcert"] }]
+    });
+  } catch (error) {
+    showStatus(`Չհաջողվեց բացել հավաստագրի ընտրության պատուհանը։ ${error.message}`, "error");
+    return;
+  }
+  if (!path) return;
+
+  if (isDirty()) {
+    if (!(await saveWorkbook())) {
+      showStatus("Հավաստագիրը չներմուծվեց․ նախ պահպանիր բաց տետրը։", "error");
+      return;
+    }
+    if (isDirty()) {
+      showStatus(
+        "Հավաստագիրը չներմուծվեց․ տետրում դեռ չպահպանված փոփոխություններ կան։",
+        "error"
+      );
+      return;
+    }
+  }
+
+  try {
+    const role = await window.__TAURI__.core.invoke("import_teacher_certificate", { path });
+    if (role !== USER_MODES.TEACHER) {
+      throw new Error("Backend-ը չհաստատեց դասատուի դերը։");
+    }
+    userMode = USER_MODES.TEACHER;
+    closeWorkbook();
+    await syncNativeMenuMode();
+    openSettings();
+    showStatus(
+      "Դասատուի հավաստագիրը ներմուծվեց։ Լրացրու դասատուի տվյալները կարգավորումներում։",
+      "success"
+    );
+  } catch (error) {
+    console.error("Դասատուի հավաստագրի ներմուծումը ձախողվեց։", error);
+    showStatus(
+      "Հավաստագիրը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։",
+      "error"
+    );
+  }
+}
+
+async function listenForCertificateImportMenu() {
+  try {
+    await window.__TAURI__.event.listen("import-teacher-certificate", importTeacherCertificate);
+  } catch (error) {
+    showStatus(
+      `Չհաջողվեց միացնել հավաստագրի ներմուծման մենյուն։ ${error.message}`,
+      "error"
+    );
   }
 }
 
@@ -317,12 +333,11 @@ async function listenForAboutMenu() {
 
 async function syncNativeMenuMode() {
   try {
-    await window.__TAURI__.core.invoke("set_user_mode", {
-      mode: userMode,
+    await window.__TAURI__.core.invoke("set_workbook_verified", {
       verified: workbookVerified
     });
   } catch (error) {
-    showStatus(`Չհաջողվեց կիրառել օգտվողի ռեժիմի մենյուն։ ${error.message}`, "error");
+    showStatus(`Չհաջողվեց կիրառել մենյուն։ ${error.message}`, "error");
   }
 }
 
@@ -1137,15 +1152,34 @@ toolbarOpen.addEventListener("click", openWorkbook);
 toolbarSave.addEventListener("click", () => saveWorkbook());
 toolbarSaveAs.addEventListener("click", () => saveWorkbook({ saveAs: true }));
 
-applyUserMode();
-markWorkbookSaved();
-syncNativeMenuMode();
-listenForCreateMenu();
-listenForSettingsMenu();
-listenForAboutMenu();
-listenForSaveMenu();
-listenForSaveAsMenu();
-listenForOpenMenu();
-listenForPendingWorkbookFiles();
-listenForExitMenu();
-checkForUpdates();
+async function initializeApp() {
+  try {
+    const role = await window.__TAURI__.core.invoke("get_app_role");
+    userMode = role === USER_MODES.TEACHER ? USER_MODES.TEACHER : USER_MODES.STUDENT;
+  } catch (error) {
+    console.error("Չհաջողվեց որոշել օգտվողի ռեժիմը։", error);
+    userMode = USER_MODES.STUDENT;
+    showStatus(
+      "Չհաջողվեց որոշել օգտվողի ռեժիմը։ Ծրագիրը կաշխատի սովորողի ռեժիմով։",
+      "error"
+    );
+  }
+
+  applyUserMode();
+  markWorkbookSaved();
+  await syncNativeMenuMode();
+  await Promise.all([
+    listenForCreateMenu(),
+    listenForSettingsMenu(),
+    listenForCertificateImportMenu(),
+    listenForAboutMenu(),
+    listenForSaveMenu(),
+    listenForSaveAsMenu(),
+    listenForOpenMenu(),
+    listenForExitMenu()
+  ]);
+  await listenForPendingWorkbookFiles();
+  checkForUpdates();
+}
+
+initializeApp();

@@ -7,13 +7,15 @@ use std::{
     sync::Mutex,
 };
 use tauri::image::Image;
-use tauri::menu::{IconMenuItem, IsMenuItem, Menu, PredefinedMenuItem, Submenu};
+use tauri::menu::{IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, State, WindowEvent, Wry};
 #[cfg(target_os = "windows")]
 use tauri_plugin_updater::UpdaterExt;
 
+mod certificate;
 mod workbook;
 
+use certificate::AppRole;
 use workbook::{read_workbook_archive, write_workbook_archive};
 
 #[derive(Default)]
@@ -30,6 +32,30 @@ impl PendingWorkbookPaths {
             .map_err(|error| format!("Չհաջողվեց հերթագրել բացվող տետրը։ {error}"))?
             .extend(paths);
         Ok(())
+    }
+}
+
+struct AppRoleState(Mutex<AppRole>);
+
+impl Default for AppRoleState {
+    fn default() -> Self {
+        Self(Mutex::new(AppRole::Student))
+    }
+}
+
+impl AppRoleState {
+    fn get(&self) -> AppRole {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn set(&self, role: AppRole) {
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = role;
     }
 }
 
@@ -147,23 +173,69 @@ async fn install_update(app: AppHandle, expected_version: String) -> Result<(), 
 }
 
 #[tauri::command]
-fn set_user_mode(app: AppHandle, mode: String, verified: bool) -> Result<(), String> {
-    let is_teacher = match mode.as_str() {
-        "teacher" => true,
-        "student" => false,
-        _ => return Err("Օգտվողի ռեժիմը սխալ է։".to_string()),
-    };
-    let title = if is_teacher {
-        "Տնային աշխատանք (դասատու)"
-    } else {
-        "Տնային աշխատանք (սովորող)"
+fn get_app_role(state: State<'_, AppRoleState>) -> String {
+    state.get().as_str().to_string()
+}
+
+#[tauri::command]
+fn set_workbook_verified(
+    app: AppHandle,
+    state: State<'_, AppRoleState>,
+    verified: bool,
+) -> Result<(), String> {
+    let menu = build_app_menu(&app, state.get(), verified)
+        .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
+    app.set_menu(menu)
+        .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn import_teacher_certificate(
+    app: AppHandle,
+    state: State<'_, AppRoleState>,
+    path: String,
+) -> Result<String, String> {
+    let config_dir = app.path().app_config_dir().map_err(|error| {
+        eprintln!("Չհաջողվեց որոշել հավաստագրի պանակը։ {error}");
+        "Չհաջողվեց որոշել հավաստագրի պահման վայրը։".to_string()
+    })?;
+    let issuers = certificate::configured_issuers();
+    let role = certificate::import_certificate(Path::new(&path), &config_dir, &issuers).map_err(
+        |error| {
+            eprintln!("Դասատուի հավաստագրի ներմուծումը մերժվեց․ {error}");
+            "Հավաստագիրը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։".to_string()
+        },
+    )?;
+
+    state.set(role);
+    if let Err(error) = apply_app_role(&app, role, false) {
+        eprintln!("Չհաջողվեց կիրառել դասատուի ռեժիմը․ {error}");
+    }
+    Ok(role.as_str().to_string())
+}
+
+fn initial_app_role<M: Manager<Wry>>(manager: &M) -> AppRole {
+    match manager.path().app_config_dir() {
+        Ok(config_dir) => certificate::role_from_local_certificate(&config_dir),
+        Err(error) => {
+            eprintln!("Չհաջողվեց որոշել հավաստագրի պանակը։ {error}");
+            AppRole::Student
+        }
+    }
+}
+
+fn apply_app_role(app: &AppHandle, role: AppRole, workbook_verified: bool) -> Result<(), String> {
+    let title = match role {
+        AppRole::Teacher => "Տնային աշխատանք (դասատու)",
+        AppRole::Student => "Տնային աշխատանք (սովորող)",
     };
     app.get_webview_window("main")
         .ok_or_else(|| "Ծրագրի հիմնական պատուհանը չի գտնվել։".to_string())?
         .set_title(title)
         .map_err(|error| format!("Չհաջողվեց փոխել պատուհանի վերնագիրը։ {error}"))?;
 
-    let menu = build_app_menu(&app, is_teacher, verified)
+    let menu = build_app_menu(app, role, workbook_verified)
         .map_err(|error| format!("Չհաջողվեց փոխել մենյուն։ {error}"))?;
     app.set_menu(menu)
         .map_err(|error| format!("Չհաջողվեց կիրառել մենյուն։ {error}"))?;
@@ -172,9 +244,10 @@ fn set_user_mode(app: AppHandle, mode: String, verified: bool) -> Result<(), Str
 
 fn build_app_menu<M: Manager<Wry>>(
     manager: &M,
-    is_teacher: bool,
+    role: AppRole,
     workbook_verified: bool,
 ) -> tauri::Result<Menu<Wry>> {
+    let is_teacher = role == AppRole::Teacher;
     let create_item = icon_menu_item(
         manager,
         "create",
@@ -217,6 +290,13 @@ fn build_app_menu<M: Manager<Wry>>(
         "Ծրագրի մասին",
         include_bytes!("../icons/menu/about.png"),
     )?;
+    let import_certificate_item = MenuItem::with_id(
+        manager,
+        "import-teacher-certificate",
+        "Հավաստագիր…",
+        true,
+        None::<&str>,
+    )?;
     let separator = PredefinedMenuItem::separator(manager)?;
     let items: Vec<&dyn IsMenuItem<Wry>> = if is_teacher {
         vec![
@@ -225,17 +305,25 @@ fn build_app_menu<M: Manager<Wry>>(
             &save_item,
             &save_as_item,
             &separator,
+            &import_certificate_item,
             &settings_item,
             &exit_item,
         ]
     } else if workbook_verified {
-        vec![&open_item, &separator, &settings_item, &exit_item]
+        vec![
+            &open_item,
+            &separator,
+            &import_certificate_item,
+            &settings_item,
+            &exit_item,
+        ]
     } else {
         vec![
             &open_item,
             &save_item,
             &save_as_item,
             &separator,
+            &import_certificate_item,
             &settings_item,
             &exit_item,
         ]
@@ -300,7 +388,9 @@ pub fn run() {
         }
     };
     let startup_paths = collect_workbook_paths(std::env::args_os().skip(1), &working_directory);
-    let mut builder = tauri::Builder::default().manage(PendingWorkbookPaths::new(startup_paths));
+    let mut builder = tauri::Builder::default()
+        .manage(PendingWorkbookPaths::new(startup_paths))
+        .manage(AppRoleState::default());
 
     #[cfg(desktop)]
     {
@@ -337,6 +427,10 @@ pub fn run() {
                 if let Err(error) = app.emit("open-settings", ()) {
                     eprintln!("Failed to open settings: {error}");
                 }
+            } else if event.id() == "import-teacher-certificate" {
+                if let Err(error) = app.emit("import-teacher-certificate", ()) {
+                    eprintln!("Չհաջողվեց սկսել հավաստագրի ներմուծումը։ {error}");
+                }
             } else if event.id() == "create" {
                 if let Err(error) = app.emit("create-workbook", ()) {
                     eprintln!("Failed to start new workbook: {error}");
@@ -371,8 +465,11 @@ pub fn run() {
             }
         })
         .setup(|app| {
-            let menu = build_app_menu(app, true, false)?;
-            app.set_menu(menu)?;
+            let role = initial_app_role(app);
+            app.state::<AppRoleState>().set(role);
+            if let Err(error) = apply_app_role(app.handle(), role, false) {
+                eprintln!("Չհաջողվեց կիրառել մեկնարկային ռեժիմը․ {error}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -382,7 +479,9 @@ pub fn run() {
             open_workbook,
             take_pending_workbook_paths,
             save_workbook,
-            set_user_mode
+            get_app_role,
+            set_workbook_verified,
+            import_teacher_certificate
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -407,5 +506,10 @@ mod tests {
                 working_directory.join("response.PDW")
             ]
         );
+    }
+
+    #[test]
+    fn app_role_state_defaults_to_student() {
+        assert_eq!(AppRoleState::default().get(), AppRole::Student);
     }
 }
