@@ -255,33 +255,28 @@ async function listenForSettingsMenu() {
 }
 
 async function importTeacherCertificate() {
-  if (userMode !== USER_MODES.STUDENT) {
-    showStatus("Դասատուի սերտիֆիկատն արդեն ներմուծված է։", "error");
-    return;
-  }
-
   let path;
   try {
     path = await window.__TAURI__.dialog.open({
-      title: "Սերտիֆիկատ",
+      title: "Հավաստագիր",
       multiple: false,
       directory: false,
-      filters: [{ name: "Դասատուի սերտիֆիկատ", extensions: ["pdcert"] }]
+      filters: [{ name: "Դասատուի հավաստագիր", extensions: ["pdcert"] }]
     });
   } catch (error) {
-    showStatus(`Չհաջողվեց բացել սերտիֆիկատի ընտրության պատուհանը։ ${error.message}`, "error");
+    showStatus(`Չհաջողվեց բացել հավաստագրի ընտրության պատուհանը։ ${error.message}`, "error");
     return;
   }
   if (!path) return;
 
   if (isDirty()) {
     if (!(await saveWorkbook())) {
-      showStatus("Սերտիֆիկատը չներմուծվեց․ նախ պահպանիր բաց տետրը։", "error");
+      showStatus("Հավաստագիրը չներմուծվեց․ նախ պահպանիր բաց տետրը։", "error");
       return;
     }
     if (isDirty()) {
       showStatus(
-        "Սերտիֆիկատը չներմուծվեց․ տետրում դեռ չպահպանված փոփոխություններ կան։",
+        "Հավաստագիրը չներմուծվեց․ տետրում դեռ չպահպանված փոփոխություններ կան։",
         "error"
       );
       return;
@@ -298,13 +293,13 @@ async function importTeacherCertificate() {
     await syncNativeMenuMode();
     openSettings();
     showStatus(
-      "Դասատուի սերտիֆիկատը ներմուծվեց։ Լրացրու դասատուի տվյալները կարգավորումներում։",
+      "Դասատուի հավաստագիրը ներմուծվեց։ Լրացրու դասատուի տվյալները կարգավորումներում։",
       "success"
     );
   } catch (error) {
-    console.error("Դասատուի սերտիֆիկատի ներմուծումը ձախողվեց։", error);
+    console.error("Դասատուի հավաստագրի ներմուծումը ձախողվեց։", error);
     showStatus(
-      "Սերտիֆիկատը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։",
+      "Հավաստագիրը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։",
       "error"
     );
   }
@@ -315,7 +310,7 @@ async function listenForCertificateImportMenu() {
     await window.__TAURI__.event.listen("import-teacher-certificate", importTeacherCertificate);
   } catch (error) {
     showStatus(
-      `Չհաջողվեց միացնել սերտիֆիկատի ներմուծման մենյուն։ ${error.message}`,
+      `Չհաջողվեց միացնել հավաստագրի ներմուծման մենյուն։ ${error.message}`,
       "error"
     );
   }

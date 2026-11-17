@@ -190,31 +190,21 @@ fn set_workbook_verified(
     Ok(())
 }
 
-fn ensure_teacher_certificate_import_allowed(role: AppRole) -> Result<(), String> {
-    if role == AppRole::Teacher {
-        Err("Դասատուի սերտիֆիկատն արդեն ներմուծված է։".to_string())
-    } else {
-        Ok(())
-    }
-}
-
 #[tauri::command]
 fn import_teacher_certificate(
     app: AppHandle,
     state: State<'_, AppRoleState>,
     path: String,
 ) -> Result<String, String> {
-    ensure_teacher_certificate_import_allowed(state.get())?;
-
     let config_dir = app.path().app_config_dir().map_err(|error| {
-        eprintln!("Չհաջողվեց որոշել սերտիֆիկատի պանակը։ {error}");
-        "Չհաջողվեց որոշել սերտիֆիկատի պահման վայրը։".to_string()
+        eprintln!("Չհաջողվեց որոշել հավաստագրի պանակը։ {error}");
+        "Չհաջողվեց որոշել հավաստագրի պահման վայրը։".to_string()
     })?;
     let issuers = certificate::configured_issuers();
     let role = certificate::import_certificate(Path::new(&path), &config_dir, &issuers).map_err(
         |error| {
-            eprintln!("Դասատուի սերտիֆիկատի ներմուծումը մերժվեց․ {error}");
-            "Սերտիֆիկատը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։".to_string()
+            eprintln!("Դասատուի հավաստագրի ներմուծումը մերժվեց․ {error}");
+            "Հավաստագիրը չընդունվեց։ Ստուգիր, որ ընտրել ես ճիշտ .pdcert ֆայլ։".to_string()
         },
     )?;
 
@@ -229,7 +219,7 @@ fn initial_app_role<M: Manager<Wry>>(manager: &M) -> AppRole {
     match manager.path().app_config_dir() {
         Ok(config_dir) => certificate::role_from_local_certificate(&config_dir),
         Err(error) => {
-            eprintln!("Չհաջողվեց որոշել սերտիֆիկատի պանակը։ {error}");
+            eprintln!("Չհաջողվեց որոշել հավաստագրի պանակը։ {error}");
             AppRole::Student
         }
     }
@@ -303,7 +293,7 @@ fn build_app_menu<M: Manager<Wry>>(
     let import_certificate_item = MenuItem::with_id(
         manager,
         "import-teacher-certificate",
-        "Սերտիֆիկատ…",
+        "Հավաստագիր…",
         true,
         None::<&str>,
     )?;
@@ -315,6 +305,7 @@ fn build_app_menu<M: Manager<Wry>>(
             &save_item,
             &save_as_item,
             &separator,
+            &import_certificate_item,
             &settings_item,
             &exit_item,
         ]
@@ -438,7 +429,7 @@ pub fn run() {
                 }
             } else if event.id() == "import-teacher-certificate" {
                 if let Err(error) = app.emit("import-teacher-certificate", ()) {
-                    eprintln!("Չհաջողվեց սկսել սերտիֆիկատի ներմուծումը։ {error}");
+                    eprintln!("Չհաջողվեց սկսել հավաստագրի ներմուծումը։ {error}");
                 }
             } else if event.id() == "create" {
                 if let Err(error) = app.emit("create-workbook", ()) {
@@ -520,11 +511,5 @@ mod tests {
     #[test]
     fn app_role_state_defaults_to_student() {
         assert_eq!(AppRoleState::default().get(), AppRole::Student);
-    }
-
-    #[test]
-    fn teacher_role_cannot_import_another_certificate() {
-        assert!(ensure_teacher_certificate_import_allowed(AppRole::Teacher).is_err());
-        assert!(ensure_teacher_certificate_import_allowed(AppRole::Student).is_ok());
     }
 }

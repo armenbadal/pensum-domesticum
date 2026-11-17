@@ -21,10 +21,10 @@ except ImportError:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ստեղծում է pensum-pilot Ed25519 բանալու զույգ և դասատուի .pdcert սերտիֆիկատ։"
+        description="Ստեղծում է pensum-pilot Ed25519 բանալու զույգ և դասատուի .pdcert հավաստագիր։"
     )
     parser.add_argument("--secret-out", type=Path, required=True, help="Գաղտնի բանալու ուղին")
-    parser.add_argument("--cert-out", type=Path, required=True, help="Սերտիֆիկատի ուղին")
+    parser.add_argument("--cert-out", type=Path, required=True, help="Հավաստագրի ուղին")
     return parser.parse_args()
 
 
@@ -75,10 +75,10 @@ def main() -> int:
     certificate_out = args.cert_out.expanduser()
 
     if certificate_out.suffix.lower() != ".pdcert":
-        print("Սերտիֆիկատի ֆայլը պետք է ունենա .pdcert ընդլայնում։", file=sys.stderr)
+        print("Հավաստագրի ֆայլը պետք է ունենա .pdcert ընդլայնում։", file=sys.stderr)
         return 1
     if not certificate_out.parent.is_dir():
-        print(f"Սերտիֆիկատի պանակը գոյություն չունի՝ {certificate_out.parent}", file=sys.stderr)
+        print(f"Հավաստագրի պանակը գոյություն չունի՝ {certificate_out.parent}", file=sys.stderr)
         return 1
 
     try:
@@ -126,7 +126,7 @@ def main() -> int:
         return 1
 
     print(f"Գաղտնի բանալին պահպանված է՝ {secret_out}")
-    print(f"Սերտիֆիկատը պահպանված է՝ {certificate_out}")
+    print(f"Հավաստագիրը պահպանված է՝ {certificate_out}")
     print(f"Հանրային բանալին (hex)՝ {public_key.hex()}")
     print()
     print("Տեղադրիր այս արժեքը src-tauri/src/certificate.rs-ում՝")

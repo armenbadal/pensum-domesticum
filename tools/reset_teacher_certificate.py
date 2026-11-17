@@ -36,9 +36,9 @@ def default_certificate_path() -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Ջնջում է հավելվածում ներմուծված դասատուի սերտիֆիկատը։"
+        description="Ջնջում է հավելվածում ներմուծված դասատուի հավաստագիրը։"
     )
-    parser.add_argument("--file", type=Path, help="Սերտիֆիկատի ճշգրիտ ուղին")
+    parser.add_argument("--file", type=Path, help="Հավաստագրի ճշգրիտ ուղին")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -47,7 +47,7 @@ def main() -> int:
     args = parser.parse_args()
 
     certificate_path = args.file.expanduser() if args.file else default_certificate_path()
-    print(f"Սերտիֆիկատի ուղին՝ {certificate_path}")
+    print(f"Հավաստագրի ուղին՝ {certificate_path}")
 
     if args.dry_run:
         print("Չոր փորձ․ ֆայլը չի ջնջվել։")
@@ -56,13 +56,13 @@ def main() -> int:
     try:
         certificate_path.unlink()
     except FileNotFoundError:
-        print("Սերտիֆիկատ չի գտնվել․ հավելվածն արդեն սովորողի ռեժիմում է։")
+        print("Հավաստագիր չի գտնվել․ հավելվածն արդեն սովորողի ռեժիմում է։")
         return 0
     except OSError as error:
-        print(f"Չհաջողվեց ջնջել սերտիֆիկատը․ {error}", file=sys.stderr)
+        print(f"Չհաջողվեց ջնջել հավաստագիրը․ {error}", file=sys.stderr)
         return 1
 
-    print("Սերտիֆիկատը ջնջվեց։ Վերագործարկիր հավելվածը, որ այն անցնի սովորողի ռեժիմի։")
+    print("Հավաստագիրը ջնջվեց։ Վերագործարկիր հավելվածը, որ այն անցնի սովորողի ռեժիմի։")
     return 0
 
 

@@ -83,13 +83,13 @@ pub(crate) fn role_from_local_certificate_with_issuers(
         Ok(bytes) => match verify_certificate_bytes(&bytes, issuers) {
             Ok(role) => role,
             Err(error) => {
-                eprintln!("Տեղային դասատուի սերտիֆիկատը մերժվեց․ {error}");
+                eprintln!("Տեղային դասատուի հավաստագիրը մերժվեց․ {error}");
                 AppRole::Student
             }
         },
         Err(error) => {
             if path.exists() {
-                eprintln!("Չհաջողվեց կարդալ դասատուի սերտիֆիկատը․ {error}");
+                eprintln!("Չհաջողվեց կարդալ դասատուի հավաստագիրը․ {error}");
             }
             AppRole::Student
         }
@@ -109,27 +109,27 @@ pub(crate) fn import_certificate(
 
 pub(crate) fn read_certificate_file(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path)
-        .map_err(|error| format!("Չհաջողվեց կարդալ սերտիֆիկատի ֆայլը։ {error}"))?;
+        .map_err(|error| format!("Չհաջողվեց կարդալ հավաստագրի ֆայլը։ {error}"))?;
     if !metadata.is_file() {
-        return Err("Սերտիֆիկատի ուղին ֆայլ չէ։".to_string());
+        return Err("Հավաստագրի ուղին ֆայլ չէ։".to_string());
     }
     if metadata.len() == 0 {
-        return Err("Սերտիֆիկատի ֆայլը դատարկ է։".to_string());
+        return Err("Հավաստագրի ֆայլը դատարկ է։".to_string());
     }
     if metadata.len() > MAX_CERTIFICATE_BYTES as u64 {
         return Err(format!(
-            "Սերտիֆիկատի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
+            "Հավաստագրի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
         ));
     }
 
     let bytes =
-        fs::read(path).map_err(|error| format!("Չհաջողվեց կարդալ սերտիֆիկատի ֆայլը։ {error}"))?;
+        fs::read(path).map_err(|error| format!("Չհաջողվեց կարդալ հավաստագրի ֆայլը։ {error}"))?;
     if bytes.is_empty() {
-        return Err("Սերտիֆիկատի ֆայլը դատարկ է։".to_string());
+        return Err("Հավաստագրի ֆայլը դատարկ է։".to_string());
     }
     if bytes.len() > MAX_CERTIFICATE_BYTES {
         return Err(format!(
-            "Սերտիֆիկատի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
+            "Հավաստագրի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
         ));
     }
     Ok(bytes)
@@ -140,11 +140,11 @@ pub(crate) fn verify_certificate_bytes(
     issuers: &[TrustedIssuer],
 ) -> Result<AppRole, String> {
     if bytes.is_empty() {
-        return Err("Սերտիֆիկատի ֆայլը դատարկ է։".to_string());
+        return Err("Հավաստագրի ֆայլը դատարկ է։".to_string());
     }
     if bytes.len() > MAX_CERTIFICATE_BYTES {
         return Err(format!(
-            "Սերտիֆիկատի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
+            "Հավաստագրի չափը գերազանցում է {MAX_CERTIFICATE_BYTES} բայթ սահմանը։"
         ));
     }
     if issuers.is_empty() {
@@ -152,15 +152,15 @@ pub(crate) fn verify_certificate_bytes(
     }
 
     let envelope: CertificateEnvelope = serde_json::from_slice(bytes)
-        .map_err(|error| format!("Սերտիֆիկատի JSON-ը սխալ է։ {error}"))?;
+        .map_err(|error| format!("Հավաստագրի JSON-ը սխալ է։ {error}"))?;
     let payload_bytes = STANDARD
         .decode(envelope.payload.as_bytes())
-        .map_err(|error| format!("Սերտիֆիկատի payload-ը վավեր base64 չէ։ {error}"))?;
+        .map_err(|error| format!("Հավաստագրի payload-ը վավեր base64 չէ։ {error}"))?;
     let signature_bytes = STANDARD
         .decode(envelope.signature.as_bytes())
-        .map_err(|error| format!("Սերտիֆիկատի ստորագրությունը վավեր base64 չէ։ {error}"))?;
+        .map_err(|error| format!("Հավաստագրի ստորագրությունը վավեր base64 չէ։ {error}"))?;
     let signature = Signature::from_slice(&signature_bytes)
-        .map_err(|error| format!("Սերտիֆիկատի ստորագրությունը սխալ երկարություն ունի։ {error}"))?;
+        .map_err(|error| format!("Հավաստագրի ստորագրությունը սխալ երկարություն ունի։ {error}"))?;
 
     let mut verified_issuer = None;
     for issuer in issuers {
@@ -175,21 +175,21 @@ pub(crate) fn verify_certificate_bytes(
         }
     }
     let issuer =
-        verified_issuer.ok_or_else(|| "Սերտիֆիկատի ստորագրությունը վավեր չէ։".to_string())?;
+        verified_issuer.ok_or_else(|| "Հավաստագրի ստորագրությունը վավեր չէ։".to_string())?;
 
     let payload: CertificatePayload = serde_json::from_slice(&payload_bytes)
-        .map_err(|error| format!("Սերտիֆիկատի payload-ը սխալ ձևաչափ ունի։ {error}"))?;
+        .map_err(|error| format!("Հավաստագրի payload-ը սխալ ձևաչափ ունի։ {error}"))?;
     if payload.version != CERTIFICATE_VERSION {
         return Err(format!(
-            "Սերտիֆիկատի տարբերակը չի աջակցվում․ {}։",
+            "Հավաստագրի տարբերակը չի աջակցվում․ {}։",
             payload.version
         ));
     }
     if payload.role != TEACHER_ROLE {
-        return Err("Սերտիֆիկատը դասատուի դեր չի հաստատում։".to_string());
+        return Err("Հավաստագիրը դասատուի դեր չի հաստատում։".to_string());
     }
     if payload.issuer_id != issuer.issuer_id {
-        return Err("Սերտիֆիկատի տրամադրողը չի համապատասխանում ստորագրող բանալուն։".to_string());
+        return Err("Հավաստագրի տրամադրողը չի համապատասխանում ստորագրող բանալուն։".to_string());
     }
 
     Ok(AppRole::Teacher)
@@ -197,21 +197,21 @@ pub(crate) fn verify_certificate_bytes(
 
 fn save_certificate_bytes(config_dir: &Path, bytes: &[u8]) -> Result<(), String> {
     fs::create_dir_all(config_dir)
-        .map_err(|error| format!("Չհաջողվեց ստեղծել սերտիֆիկատի պանակը։ {error}"))?;
+        .map_err(|error| format!("Չհաջողվեց ստեղծել հավաստագրի պանակը։ {error}"))?;
     let mut temporary = NamedTempFile::new_in(config_dir)
-        .map_err(|error| format!("Չհաջողվեց ստեղծել ժամանակավոր սերտիֆիկատ։ {error}"))?;
+        .map_err(|error| format!("Չհաջողվեց ստեղծել ժամանակավոր հավաստագիր։ {error}"))?;
     temporary
         .write_all(bytes)
-        .map_err(|error| format!("Չհաջողվեց գրել սերտիֆիկատը։ {error}"))?;
+        .map_err(|error| format!("Չհաջողվեց գրել հավաստագիրը։ {error}"))?;
     temporary
         .as_file()
         .sync_all()
-        .map_err(|error| format!("Չհաջողվեց պահպանել սերտիֆիկատը սկավառակի վրա։ {error}"))?;
+        .map_err(|error| format!("Չհաջողվեց պահպանել հավաստագիրը սկավառակի վրա։ {error}"))?;
     temporary
         .persist(certificate_path(config_dir))
-        .map_err(|error| format!("Չհաջողվեց վերջնականացնել սերտիֆիկատը։ {}", error.error))?;
+        .map_err(|error| format!("Չհաջողվեց վերջնականացնել հավաստագիրը։ {}", error.error))?;
     if let Err(error) = sync_parent_directory(config_dir) {
-        eprintln!("Չհաջողվեց պահպանել սերտիֆիկատի պանակը սկավառակի վրա։ {error}");
+        eprintln!("Չհաջողվեց պահպանել հավաստագրի պանակը սկավառակի վրա։ {error}");
     }
     Ok(())
 }
@@ -387,6 +387,28 @@ mod tests {
         assert_eq!(
             fs::read(certificate_path(directory.path())).unwrap(),
             certificate
+        );
+    }
+
+    #[test]
+    fn valid_import_replaces_existing_certificate() {
+        let directory = tempfile::tempdir().unwrap();
+        let existing = signed_certificate(&teacher_payload(), &signing_key());
+        fs::write(certificate_path(directory.path()), &existing).unwrap();
+
+        let replacement_payload =
+            br#"{"version": 1, "role": "teacher", "issuer_id": "pensum-pilot"}"#;
+        let replacement = signed_certificate(replacement_payload, &signing_key());
+        let source = directory.path().join("replacement.pdcert");
+        fs::write(&source, &replacement).unwrap();
+
+        assert_eq!(
+            import_certificate(&source, directory.path(), &test_issuers()).unwrap(),
+            AppRole::Teacher
+        );
+        assert_eq!(
+            fs::read(certificate_path(directory.path())).unwrap(),
+            replacement
         );
     }
 
