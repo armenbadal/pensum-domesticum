@@ -786,8 +786,42 @@ function createContentBlock(type, imageUrl, initialContent = "", editable = true
 
   block.classList.add("content-block-squared");
   removeButton.classList.add("content-block-squared-remove");
-  block.append(createSquaredEditor(initialContent, editable), removeButton);
+  const actions = document.createElement("div");
+  actions.className = "content-block-squared-actions";
+  actions.hidden = !editable;
+  actions.append(removeButton);
+  block.append(createSquaredEditor(initialContent, editable), actions);
   return block;
+}
+
+function addGridCopyAction(problemBlock, solutionSection) {
+  const sourceGrid = problemBlock.querySelector("math-grid");
+  const actions = problemBlock.querySelector(".content-block-squared-actions");
+  if (!sourceGrid || !actions) return;
+
+  const copyButton = makeButton("", "button button-secondary copy-grid-button", () => {
+    let content;
+    try {
+      content = JSON.parse(sourceGrid.value);
+    } catch (error) {
+      showStatus(`Չհաջողվեց կարդալ վանդակավոր դաշտը։ ${error.message}`, "error");
+      return;
+    }
+    if (!isValidSquaredContent(content)) {
+      showStatus("Վանդակավոր դաշտի տվյալները վավեր չեն և չեն կարող պատճենվել։", "error");
+      return;
+    }
+
+    const copiedBlock = createContentBlock("squared", undefined, content, true);
+    solutionSection.querySelector(".block-list").append(copiedBlock);
+    clearOutput("Վանդակավոր դաշտը պատճենվեց լուծման մեջ։");
+    copiedBlock.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+  addButtonIcon(copyButton, "copy");
+  copyButton.setAttribute("aria-label", "Պատճենել վանդակավոր դաշտը լուծման մեջ");
+  copyButton.title = "Պատճենել լուծման մեջ";
+  actions.hidden = false;
+  actions.append(copyButton);
 }
 
 function openImagePicker(blocks) {
@@ -956,13 +990,27 @@ function createAssignment(savedAssignment = { problem: [], solution: [] }) {
 
   const sections = document.createElement("div");
   sections.className = "assignment-sections";
-  sections.append(
-    createContentSection("problem", null, savedAssignment.problem, canEditTeacherContent),
+  const problemSection = createContentSection(
+    "problem",
+    null,
+    savedAssignment.problem,
+    canEditTeacherContent
   );
+  sections.append(problemSection);
+  let solutionSection = null;
   if (!isTeacher || savedSolution.length > 0 || workbookSolved) {
-    sections.append(
-      createContentSection("solution", "Լուծում", savedSolution, canEditStudentSolution)
+    solutionSection = createContentSection(
+      "solution",
+      "Լուծում",
+      savedSolution,
+      canEditStudentSolution
     );
+    sections.append(solutionSection);
+  }
+  if (canEditStudentSolution && solutionSection) {
+    problemSection.querySelectorAll('.content-block[data-type="squared"]').forEach(block => {
+      addGridCopyAction(block, solutionSection);
+    });
   }
   if (workbookSolved) {
     const assignmentNumber = assignmentList.querySelectorAll(".assignment-card").length + 1;
