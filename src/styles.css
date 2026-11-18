@@ -453,6 +453,14 @@ textarea {
   padding: 8px;
 }
 
+.content-block-squared-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
 .content-block-squared-remove {
   position: static;
   flex: 0 0 24px;
@@ -562,6 +570,21 @@ textarea {
 }
 
 .remove-block-button img {
+  width: 16px;
+  height: 16px;
+}
+
+.copy-grid-button {
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.copy-grid-button img {
   width: 16px;
   height: 16px;
 }
