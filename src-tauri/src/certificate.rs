@@ -70,10 +70,12 @@ pub(crate) fn certificate_path(config_dir: &Path) -> PathBuf {
     config_dir.join(CERTIFICATE_FILE_NAME)
 }
 
+#[cfg(not(debug_assertions))]
 pub(crate) fn role_from_local_certificate(config_dir: &Path) -> AppRole {
     role_from_local_certificate_with_issuers(config_dir, &configured_issuers())
 }
 
+#[cfg(any(not(debug_assertions), test))]
 pub(crate) fn role_from_local_certificate_with_issuers(
     config_dir: &Path,
     issuers: &[TrustedIssuer],

@@ -215,8 +215,42 @@ fn import_teacher_certificate(
     Ok(role.as_str().to_string())
 }
 
-fn initial_app_role<M: Manager<Wry>>(manager: &M) -> AppRole {
-    match manager.path().app_config_dir() {
+#[cfg(debug_assertions)]
+fn parse_development_role(value: &str) -> Option<AppRole> {
+    match value {
+        "teacher" => Some(AppRole::Teacher),
+        "student" => Some(AppRole::Student),
+        _ => None,
+    }
+}
+
+#[cfg(debug_assertions)]
+fn development_role_from_env(value: Result<String, std::env::VarError>) -> AppRole {
+    match value {
+        Ok(value) if value.is_empty() => AppRole::Student,
+        Ok(value) => match parse_development_role(&value) {
+            Some(role) => role,
+            None => {
+                eprintln!(
+                    "PENSUM_DEV_ROLE-ի արժեքը անվավեր է ({value:?})․ ընդունվում են միայն teacher կամ student։"
+                );
+                AppRole::Student
+            }
+        },
+        Err(std::env::VarError::NotPresent) => AppRole::Student,
+        Err(error) => {
+            eprintln!("Չհաջողվեց կարդալ PENSUM_DEV_ROLE-ը․ {error}");
+            AppRole::Student
+        }
+    }
+}
+
+fn initial_app_role<M: Manager<Wry>>(_manager: &M) -> AppRole {
+    #[cfg(debug_assertions)]
+    return development_role_from_env(std::env::var("PENSUM_DEV_ROLE"));
+
+    #[cfg(not(debug_assertions))]
+    match _manager.path().app_config_dir() {
         Ok(config_dir) => certificate::role_from_local_certificate(&config_dir),
         Err(error) => {
             eprintln!("Չհաջողվեց որոշել հավաստագրի պանակը։ {error}");
@@ -511,5 +545,26 @@ mod tests {
     #[test]
     fn app_role_state_defaults_to_student() {
         assert_eq!(AppRoleState::default().get(), AppRole::Student);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_role_override_accepts_only_known_roles() {
+        assert_eq!(parse_development_role("teacher"), Some(AppRole::Teacher));
+        assert_eq!(parse_development_role("student"), Some(AppRole::Student));
+        assert_eq!(parse_development_role("admin"), None);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn development_role_defaults_to_student_when_unset_or_empty() {
+        assert_eq!(
+            development_role_from_env(Err(std::env::VarError::NotPresent)),
+            AppRole::Student
+        );
+        assert_eq!(
+            development_role_from_env(Ok(String::new())),
+            AppRole::Student
+        );
     }
 }
